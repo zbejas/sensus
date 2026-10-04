@@ -235,6 +235,10 @@ export interface SensusConfig {
   /** Daemon idle policy (docs/config.md "daemon", D3/D9): a persistent daemon
    * never grace-exits; `SENSUS_DAEMON_PERSISTENT` overrides it. Default false. */
   daemonPersistent: boolean
+  /** Launch update alert (docs/config.md "updateCheck", docs/operations.md
+   * "Update"): check the latest release once a day and toast when a newer one
+   * exists; `SENSUS_UPDATE_CHECK` overrides it. Default true. */
+  updateCheck: boolean
   /** Global hotkey overrides, e.g. { "focus-toggle": "shift+tab" }. */
   keymap: Partial<Record<KeyActionId, string>>
   approval: ApprovalMode

@@ -32,14 +32,16 @@ export function sensusCacheDir(): string {
   )
 }
 
-/** State dir (M6 detached-server registry). SENSUS_STATE overrides; like the
- * config/data dirs, SENSUS_HOME redirects it wholesale (test seam). */
+/** State dir for an explicit env (test seam; sensusStateDir() reads process.env).
+ * SENSUS_STATE overrides; like the config/data dirs, SENSUS_HOME redirects it
+ * wholesale. Holds the session search index and the update-check cache. */
+export function sensusStateDirFrom(env: NodeJS.ProcessEnv): string {
+  return env["SENSUS_STATE"] ?? env["SENSUS_HOME"] ?? `${env["HOME"] ?? ""}/.local/state/sensus`
+}
+
+/** State dir (the search index, the update-check cache). */
 export function sensusStateDir(): string {
-  return (
-    process.env["SENSUS_STATE"] ??
-    process.env["SENSUS_HOME"] ??
-    `${process.env["HOME"] ?? ""}/.local/state/sensus`
-  )
+  return sensusStateDirFrom(process.env as NodeJS.ProcessEnv)
 }
 
 /** Runtime dir for an explicit env (test seam; the daemon reads process.env).

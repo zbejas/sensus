@@ -72,8 +72,10 @@ sensus   # first run opens the guided setup inside sensus
 
 The installer detects your platform, verifies checksums, installs to `~/.local/bin`,
 warns if that is not on your `PATH`, and scaffolds a starter config without overwriting
-an existing one. It is safe to re-run. Sensus needs Linux or macOS on x86_64/aarch64 and
-works over SSH; Bun is only needed to build from source.
+an existing one. It is safe to re-run. Update an installed copy in place with
+`sensus update` (`--check` only reports; `sensus upgrade` is the alias). Sensus needs
+Linux or macOS on x86_64/aarch64 and works over SSH; Bun is only needed to build from
+source.
 
 System-wide (`-g`), pinned releases, updates, and building from source:
 [Install](https://sensus.sh/docs/install/) and
@@ -115,8 +117,3 @@ Requires Bun ≥ 1.4.1 to run from source and ≥ 1.4.2 to build the binary. The
 knowledge base starts at [`docs/architecture.md`](docs/architecture.md); the manual's
 [Build from source](https://sensus.sh/docs/development/) page covers the same ground for
 users.
-
-## License
-
-Apache-2.0, in full: no open-core split, no gated features. See [LICENSE](LICENSE) and
-[NOTICE](NOTICE).

@@ -24,8 +24,9 @@ doc. The per-module sections that follow name the individual files.
 | Path | Purpose | Depth doc |
 |---|---|---|
 | `src/index.tsx` | Entry: CLI dispatch, config load, `--resume`, boot UI (App spawns the first PTY) | this doc (Lifecycle) |
-| `src/cli.ts` | Headless entry points (`--help` / `--version` / `init` / `secrets` / `daemon`) + nest guard | [`operations.md`](operations.md), [`daemon-api.md`](daemon-api.md) |
+| `src/cli.ts` | Headless entry points (`--help` / `--version` / `init` / `secrets` / `update` / `daemon`) + nest guard | [`operations.md`](operations.md), [`daemon-api.md`](daemon-api.md) |
 | `src/version.ts` | Re-exports package.json's version (single source of truth) | [`operations.md`](operations.md) |
+| `src/update.ts` | `sensus update`/`upgrade` + the cached launch update alert | [`operations.md`](operations.md) |
 | `src/core/` | Cross-cutting primitives: keymap, command registry, shared helpers | [`keybindings.md`](keybindings.md), this doc |
 | `src/config/` | Config load/resolve, settings writes, agent definitions, setup wizard | [`config.md`](config.md), [`agents.md`](agents.md) |
 | `src/theme/` | Theme token maps, palette detection, persistence, markdown style | [`DESIGN.md`](DESIGN.md) |
@@ -408,9 +409,10 @@ the error. Full detail: [`agent.md`](agent.md).
 
 ## Lifecycle
 
-- **CLI (headless).** `sensus --help|-h|help`, `--version|-v|version`, and
-  `sensus init --create-config` run before config resolution so they work headless and
-  from the compiled binary. `sensus init` boots the TUI with the setup modal open (setup is
+- **CLI (headless).** `sensus --help|-h|help`, `--version|-v|version`,
+  `sensus update`/`upgrade`, and `sensus init --create-config` run before config resolution
+  so they work headless and from the compiled binary. `sensus init` boots the TUI with the
+  setup modal open (setup is
   in-app; `/init-wizard` and Ctrl+P reopen it). The **nest guard** refuses a TUI boot when
   `SENSUS_ACTIVE` is set (`SENSUS_SKIP=1`, the test/dogfooding hatch, overrides; headless
   subcommands stay usable).

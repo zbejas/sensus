@@ -284,6 +284,28 @@ describe("config resolution", () => {
     })
   })
 
+  test("updateCheck: on by default, file flag + SENSUS_UPDATE_CHECK override; invalid warns", () => {
+    expect(defaultConfig().updateCheck).toBe(true)
+    withConfigFile({ updateCheck: false }, (resolve) => {
+      const c = resolve()
+      expect(c.updateCheck).toBe(false)
+      expect(c.warnings.filter((w) => w.includes("updateCheck"))).toEqual([])
+    })
+    // The env truthy spelling turns it on even when the file says otherwise.
+    withConfigFile({ updateCheck: true }, (resolve) => {
+      expect(resolve({ SENSUS_UPDATE_CHECK: "0" }).updateCheck).toBe(false)
+      expect(resolve({ SENSUS_UPDATE_CHECK: "false" }).updateCheck).toBe(false)
+      expect(resolve({ SENSUS_UPDATE_CHECK: "1" }).updateCheck).toBe(true)
+    })
+    // A non-boolean file value and an unparseable env value warn and keep default.
+    withConfigFile({ updateCheck: "yes" }, (resolve) => {
+      const c = resolve({ SENSUS_UPDATE_CHECK: "maybe" })
+      expect(c.updateCheck).toBe(true)
+      expect(c.warnings.some((w) => w.includes("updateCheck must be a boolean"))).toBe(true)
+      expect(c.warnings.some((w) => w.includes("SENSUS_UPDATE_CHECK"))).toBe(true)
+    })
+  })
+
   test("titles section: enabled + model parse; invalid values warn and keep defaults", () => {
     withConfigFile({ titles: { enabled: false, model: " ollama@llama3 " } }, (resolve) => {
       const c = resolve()

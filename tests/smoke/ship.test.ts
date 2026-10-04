@@ -188,7 +188,7 @@ describe("M4 ship: compiled binary + installer", () => {
         const boot = await outer(
           bootSessionArgv(
             "ship",
-            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_HOME=${home} SENSUS_RUNTIME_DIR=${home}/daemon-runtime SENSUS_MOCK=1 ${binaryPath} 2>>/tmp/sensus/sensus-ship-boot.err`,
+            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_UPDATE_CHECK=0 SENSUS_HOME=${home} SENSUS_RUNTIME_DIR=${home}/daemon-runtime SENSUS_MOCK=1 ${binaryPath} 2>>/tmp/sensus/sensus-ship-boot.err`,
             { cwd: poison }, // cwd with the poisoned bunfig.toml (see above)
           ),
         )
@@ -284,7 +284,7 @@ describe("M4 ship: compiled binary + installer", () => {
           "tiny",
           "-c",
           REPO_ROOT,
-          `env SENSUS_SKIP=1 SENSUS_HOME=${home} SENSUS_RUNTIME_DIR=${home}/daemon-runtime SENSUS_MOCK=1 ${binaryPath} 2>${errFile}`,
+          `env SENSUS_SKIP=1 SENSUS_UPDATE_CHECK=0 SENSUS_HOME=${home} SENSUS_RUNTIME_DIR=${home}/daemon-runtime SENSUS_MOCK=1 ${binaryPath} 2>${errFile}`,
         ])
         expect(boot.code).toBe(0)
         await waitFor(
@@ -504,6 +504,106 @@ esac
       } finally {
         server.stop(true)
         rmSync(home, { recursive: true, force: true })
+      }
+    },
+    120_000,
+  )
+
+  test(
+    "sensus update installs a release in place; the launch alert toasts a newer one",
+    async () => {
+      if (binaryPath === null) {
+        console.log("[ship] skip: no binary")
+        return
+      }
+      // A local stand-in for GitHub Releases + sensus.sh/install: the latest-
+      // release JSON, the installer script, and the release assets.
+      const asset = platformReleaseAsset()
+      const bytes = new Uint8Array(await Bun.file(binaryPath).arrayBuffer())
+      const goodSha = new Bun.CryptoHasher("sha256").update(bytes).digest("hex")
+      const installerScript = readFileSync(join(REPO_ROOT, "scripts/install-release.sh"), "utf8")
+      const server = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch(req) {
+          const path = new URL(req.url).pathname
+          if (path === "/latest") return Response.json({ tag_name: "v9.9.9" })
+          if (path === "/install.sh") return new Response(installerScript)
+          if (path === `/latest/download/${asset}` || path === `/download/v9.9.9/${asset}`) {
+            return new Response(bytes)
+          }
+          if (path === "/latest/download/checksums.txt" || path === "/download/v9.9.9/checksums.txt") {
+            return new Response(`${goodSha}  ${asset}\n`)
+          }
+          return new Response("not found", { status: 404 })
+        },
+      })
+      const base = `http://127.0.0.1:${server.port}`
+
+      // The "installed" binary lives in a canonical <prefix>/bin/sensus, so
+      // `update` derives its own prefix and replaces itself in place.
+      const home = mkdtempSync(join(tmpdir(), "sensus-ship-update-"))
+      const prefix = join(home, "prefix")
+      const binPath = join(prefix, "bin", "sensus")
+      mkdirSync(join(prefix, "bin"), { recursive: true })
+      cpSync(binaryPath, binPath)
+      chmodSync(binPath, 0o755)
+      const updateEnv = {
+        HOME: home,
+        SENSUS_STATE: join(home, "state"),
+        SENSUS_UPDATE_URL: `${base}/latest`,
+        SENSUS_INSTALL_URL: `${base}/install.sh`,
+        SENSUS_RELEASES_BASE_URL: base,
+      }
+
+      // A separate home for the launch-alert boot (fresh state: no cache yet).
+      const alertHome = mkdtempSync(join(tmpdir(), "sensus-ship-alert-"))
+      try {
+        // 1. --check reports the newer release without touching the binary.
+        const check = await sh([binPath, "update", "--check"], { env: updateEnv, timeoutMs: 30_000 })
+        expect(check.code).toBe(0)
+        expect(check.stdout).toContain("v9.9.9")
+        expect(check.stdout).toContain("available")
+
+        // 2. A real update downloads, checksum-verifies, and replaces the
+        //    running binary in place (the process's own path).
+        const update = await sh([binPath, "update"], { env: updateEnv, timeoutMs: 60_000 })
+        expect(update.code).toBe(0)
+        expect(update.stdout).toContain(`Installed: ${binPath}`)
+        const ver = await sh([binPath, "--version"], { timeoutMs: 15_000 })
+        expect(ver.stdout.trim()).toBe(`sensus ${SENSUS_VERSION}`)
+
+        // 3. The launch alert: with a fresh state dir and the local release
+        //    endpoint, a boot toasts the newer version.
+        writeSmokeConfig(alertHome, { layout: "topbar" })
+        const boot = await outer(
+          bootSessionArgv(
+            "shipupd",
+            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_HOME=${alertHome} SENSUS_RUNTIME_DIR=${alertHome}/daemon-runtime SENSUS_MOCK=1 SENSUS_UPDATE_URL=${base}/latest SENSUS_STATE=${alertHome}/state ${binPath} 2>>/tmp/sensus/sensus-ship-update-boot.err`,
+          ),
+        )
+        expect(boot.code).toBe(0)
+        await waitFor(async () => {
+          const out = await h.capT("shipupd:0")
+          return out.includes("v9.9.9") && out.includes("is available")
+        }, "launch update toast")
+
+        // Clean exit: the pane shell's exit quits sensus; the stray guard
+        // below stops the sandbox daemon.
+        await outer(["send-keys", "-t", "shipupd:0", "-l", "exit"])
+        await outer(["send-keys", "-t", "shipupd:0", "Enter"])
+        await waitFor(
+          async () => (await outer(["has-session", "-t", "shipupd"])).code !== 0,
+          "alert boot clean exit",
+          10000,
+        )
+        await Bun.sleep(300)
+        await expectNoStrayProcesses(alertHome)
+        console.log("[ship] update install + launch alert ok")
+      } finally {
+        server.stop(true)
+        rmSync(home, { recursive: true, force: true })
+        rmSync(alertHome, { recursive: true, force: true })
       }
     },
     120_000,

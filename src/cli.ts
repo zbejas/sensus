@@ -3,6 +3,8 @@
  *
  *   sensus --help | -h | help        usage text
  *   sensus --version | -v | version  version line
+ *   sensus update | upgrade          check the latest release and install it
+ *                                    in place (headless; never boots the TUI)
  *   sensus init                      boot the TUI with the setup wizard open
  *                                    (optional alias for the in-app `/init-wizard`;
  *                                    index.tsx reads the "setup" intent)
@@ -37,6 +39,7 @@ export interface CliIo {
 export type CliDecision =
   | { action: "boot"; setup?: "force" }
   | { action: "exit"; code: number }
+  | { action: "update"; argv: string[] }
   | { action: "daemon"; argv: string[] }
   | { action: "kill"; argv: string[] }
   | { action: "events"; argv: string[] }
@@ -72,6 +75,7 @@ Usage:
   sensus --version          print the version
   sensus --help             this text
   sensus --export <file>    print a session transcript as markdown
+  sensus update             update to the latest release in place (alias: upgrade)
   sensus secrets <cmd>      manage the encrypted secrets store: list | set <NAME> <value> | rm <NAME> | migrate
   sensus daemon <cmd>       run/manage the local daemon (worker): serve | start | stop | status | logs | install | uninstall
   sensus kill               stop every running sensus daemon (the kill switch; --dry-run)
@@ -474,6 +478,12 @@ export function handleCli(argv: readonly string[], io: CliIo, env: NodeJS.Proces
   // the nest guard so it works from inside a sensus pane.
   if (first === "triggers") {
     return { action: "triggers", argv: argv.slice(1) }
+  }
+  // `sensus update` (alias `upgrade`) is headless too (docs/operations.md
+  // "Update"): handled before the nest guard so it works from inside a sensus
+  // pane. `src/index.tsx` awaits the async runner.
+  if (first === "update" || first === "upgrade") {
+    return { action: "update", argv: argv.slice(1) }
   }
   // Nesting guard (README "Never nests"): a MANUAL `sensus` inside a sensus
   // pane is refused — including `sensus init`, which now boots the TUI rather

@@ -107,13 +107,27 @@ sensus --help       # usage
 sensus --version    # the version you are running
 ```
 
-## Update or remove
+## Update
 
-Sensus has no self-update command: re-run the install one-liner to replace the binary in
-place (your configuration is never touched). Remove the always-on service with
-`sensus daemon uninstall`; to remove the app itself, stop the services and delete the
-installed binary. Your config, sessions, memory, and logs stay on disk until you delete them.
-See [Install](/docs/install/).
+```sh
+sensus update                    # update to the latest release, in place
+sensus update --check            # only report whether a newer release exists
+sensus update --version <tag>    # install a specific release
+```
+
+`sensus update` (alias: `sensus upgrade`) downloads the latest release and replaces the
+installed binary in place. Your configuration, sessions, and memory are untouched. From a
+source checkout it prints the git-based update instead.
+
+Sensus also checks for a newer release once a day at launch and shows a short notice when
+one exists. Turn that check off with `"updateCheck": false` in your configuration; see
+[Configuration](/docs/configuration/).
+
+## Remove
+
+Remove the always-on service with `sensus daemon uninstall`; to remove the app itself, stop
+the services and delete the installed binary. Your config, sessions, memory, and logs stay on
+disk until you delete them. See [Install](/docs/install/).
 
 ## Next steps
 

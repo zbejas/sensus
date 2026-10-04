@@ -33,11 +33,15 @@ Sensus only talks to the services you point it at:
 - **The public model catalog.** Sensus fetches the models.dev catalog (public model
   metadata such as context window, image support, and reasoning settings) and your
   endpoint's own model list, to label and populate the model pickers.
+- **The update check.** At most once a day, sensus asks for the latest release so it can
+  tell you when an update is available. The request carries nothing about you or your
+  machine, and you can turn it off with the `updateCheck` setting in your configuration.
+  Running `sensus update` downloads the release when you ask for it.
 - **Instruction links you add.** If your configuration lists a URL as an extra instructions
   source, sensus fetches it when it loads your instructions.
 
-Nothing else. There is no analytics, no crash reporting, no update ping, and no phone-home.
-Your terminal output is read only locally, to build the context for a message you send.
+Nothing else. There is no analytics, no crash reporting, and no phone-home. Your terminal
+output is read only locally, to build the context for a message you send.
 
 ## Next steps
 

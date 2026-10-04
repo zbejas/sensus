@@ -3,10 +3,20 @@ interface Props {
   size?: "lg" | "sm"
   /** Pin the latest-release tag to the card's bottom-left edge. */
   badge?: boolean
+  /** The command to show and copy; defaults to the latest-release installer. */
+  command?: string
+  /** Accessible label for the copy button. */
+  label?: string
   class?: string
 }
 
-const { size = "lg", badge = false, class: className = "" } = Astro.props
+const {
+  size = "lg",
+  badge = false,
+  command = "curl -fsSL https://sensus.sh/install | bash",
+  label = "Copy the install command",
+  class: className = "",
+} = Astro.props
 ---
 
 <div class:list={["install", `install-${size}`, className]} data-install>
@@ -19,9 +29,9 @@ const { size = "lg", badge = false, class: className = "" } = Astro.props
   }
   <code class="install-cmd">
     <span class="install-prompt" aria-hidden="true">$</span>
-    <span data-cmd-text>curl -fsSL https://sensus.sh/install | bash</span>
+    <span data-cmd-text>{command}</span>
   </code>
-  <button class="install-copy" type="button" data-copy aria-label="Copy the install command">
+  <button class="install-copy" type="button" data-copy aria-label={label}>
     <span data-copy-label aria-live="polite">Copy</span>
   </button>
 </div>

@@ -91,7 +91,11 @@ or to keep it for later; `sensus daemon restart` is the manual escape hatch.
 - **Checksum mismatch:** the download was corrupted or tampered with; the installer refuses
   to continue. Re-run it.
 - **`~/.local/bin` is not on your PATH:** the installer prints the line to add. Or install
-  system-wide with `-g`.
+  system-wide (to `/usr/local/bin`):
+
+  ```sh
+  curl -fsSL https://sensus.sh/install | bash -s -- -g
+  ```
 - **macOS kills the binary instantly (`Killed: 9`):** the code signature was rejected.
   Re-run the installer, or ad-hoc sign the binary with `codesign --force --sign - <path>`.
 - **`Unknown lockfile version` or floating dependency versions:** your Bun is too old for a

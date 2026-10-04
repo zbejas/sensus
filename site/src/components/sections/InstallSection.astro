@@ -1,5 +1,7 @@
 ---
 import InstallCommand from "../InstallCommand.astro"
+
+const systemWide = "curl -fsSL https://sensus.sh/install | bash -s -- -g"
 ---
 
 <section id="install" class="section">
@@ -12,9 +14,18 @@ import InstallCommand from "../InstallCommand.astro"
       <InstallCommand />
     </div>
     <p class="req mono">Linux or macOS · x86_64/aarch64 · works over SSH</p>
+    <div class="alt">
+      <p class="alt-label">
+        System-wide install — <code>/usr/local/bin</code>, uses <code>sudo</code> when needed
+      </p>
+      <InstallCommand
+        size="sm"
+        command={systemWide}
+        label="Copy the system-wide install command"
+      />
+    </div>
     <p class="flags">
-      Pin a release with <code>--version v{__SENSUS_VERSION__}</code> · install system-wide with <code>-g</code> ·
-      <a href="/docs/development/">build from source</a>
+      <a href="/docs/install/">All install options</a> · <a href="/docs/development/">build from source</a>
     </p>
   </div>
 </section>
@@ -35,6 +46,19 @@ import InstallCommand from "../InstallCommand.astro"
   .cmd {
     width: min(100%, 560px);
     margin-top: 0.5rem;
+  }
+
+  .alt {
+    display: grid;
+    gap: 0.5rem;
+    width: min(100%, 560px);
+    text-align: left;
+  }
+
+  .alt-label {
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 0.875rem;
   }
 
   .req {

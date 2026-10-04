@@ -128,7 +128,9 @@ and hover/focus transitions use the exponential ease-out token (`--ease-out`).
 
 - `public/favicon.svg`: the wordmark at icon size — lowercase `s` + block cursor on ink.
 - `public/og.png`: rendered from `src/assets/og.svg` by `bun run og` (`scripts/og.ts`); the
-  script is its provenance.
+  script is its provenance. `src/layouts/Base.astro` folds the raster's content hash into
+  the `og:image`/`twitter:image` URL, so social crawlers refetch a re-rendered card instead
+  of serving their cached copy.
 - `../assets/ui.svg` + `ui-topbar-disk.svg`: the README's hero and topbar example, generated
   from the built mock by `bun run readme-svg` (`scripts/readme-svg.ts`) — a headless-Chrome
   DOM capture that pins every text run with `textLength`, so the layout holds across

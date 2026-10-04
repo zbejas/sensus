@@ -533,7 +533,9 @@ minutes.
 Local development: `cd site && bun install && bun run dev`; `bun run check` (types), `bun test`
 (the `/install` logic), `bun run build`. To exercise the Function locally, build then
 `bunx wrangler pages dev dist`. `public/og.png` is rendered from `src/assets/og.svg` by
-`bun run og` (`scripts/og.ts`) and committed; the raster's provenance is that script.
+`bun run og` (`scripts/og.ts`) and committed; the raster's provenance is that script. The
+layout versions the `og:image` URL with the PNG's content hash, so social embeds refetch
+after a re-render instead of showing a stale cached card.
 
 ## Runtime requirements
 

@@ -1,4 +1,6 @@
 ---
+import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
 import "../styles/tokens.css"
 import "../styles/global.css"
 
@@ -14,7 +16,19 @@ const {
 
 const origin = Astro.site ?? new URL("https://sensus.sh")
 const canonical = new URL(Astro.url.pathname, origin)
+
+// Social crawlers cache embed images by URL, so a re-rendered og.png would
+// keep showing the old card behind the same `/og.png`. Fold the raster's
+// content hash into the URL: a new image is a new URL, and crawlers refetch
+// instead of serving their cache. `og.png` stays the stable on-disk path.
+// The dev server and build both run from `site/`, so the relative read is
+// the site root's public/og.png.
 const ogImage = new URL("/og.png", origin)
+const ogHash = createHash("sha256")
+  .update(readFileSync("public/og.png"))
+  .digest("hex")
+  .slice(0, 8)
+ogImage.searchParams.set("v", ogHash)
 ---
 
 <!doctype html>

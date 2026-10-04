@@ -79,7 +79,11 @@ rule and each agent body reinforces it.
   (`setsid` when available), stdout+stderr merged, killed on timeout and on Esc (a
   foreground call). `background: true` detaches it as a job; `job: <id>` polls status plus
   output since the last poll; `job: <id>, kill: true` kills the tree; `wait: true` waits up
-  to the job's own 1800s cap.
+  to the job's own 1800s cap. If a straggler still holds a pipe after the shell exits (no
+  `setsid`), the bounded drain race is lost and the pumps are cancelled through their
+  readers — never `stream.cancel()` on a locked stream, whose rejection once killed the
+  daemon — and the event is recorded (`hidden command force-drained`, warn) without the
+  command text (a hidden command may embed a secret).
 - `shell_background` cwd defaults to the active pane's cwd (OSC 7), not the agent shell's
   cwd — "agent works where you are".
 - Background jobs are process-global but tagged with their owning session; `/clear` kills

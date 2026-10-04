@@ -50,6 +50,7 @@ import type { SessionSearchBridge } from "../../../src/session/indexDb.ts"
 import { sudoAskpassBroker } from "../../../src/agent/sudoAskpass.ts"
 import { agentKeyAction } from "../../../src/terminal/keys.ts"
 import { classifyPaneState } from "../../../src/terminal/paneState.ts"
+import { configureLogger, parseLogLine, type LogRecord } from "../../../src/core/log.ts"
 
 let dir: string
 
@@ -245,6 +246,8 @@ describe("hidden shell (shell_background)", () => {
     const onRejection = (reason: unknown): void => {
       rejections.push(reason)
     }
+    const lines: string[] = []
+    configureLogger({ level: "debug", sink: (line) => lines.push(line) })
     process.on("unhandledRejection", onRejection)
     try {
       const t0 = Date.now()
@@ -257,8 +260,18 @@ describe("hidden shell (shell_background)", () => {
       expect(elapsed).toBeLessThan(2000)
       await Bun.sleep(50)
       expect(rejections).toEqual([])
+      // The lost drain race is visible in the structured log (docs/logging.md):
+      // a warn with the cause; the command itself is deliberately not logged.
+      const recs = lines.map((l) => parseLogLine(l)).filter((r): r is LogRecord => r !== null)
+      const drained = recs.find((rec) => rec.msg === "hidden command force-drained")
+      expect(drained?.level).toBe("warn")
+      expect(drained?.component).toBe("agent.tools")
+      expect(drained?.attributes?.["timedOut"]).toBe(false)
+      expect(drained?.attributes?.["aborted"]).toBe(false)
+      expect(drained?.attributes?.["command"]).toBeUndefined()
     } finally {
       process.off("unhandledRejection", onRejection)
+      configureLogger({ level: "error", sink: () => {} })
     }
   }, 8000)
 

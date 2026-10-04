@@ -28,6 +28,7 @@ import { MemoryStore } from "../../../../src/agent/memory/store.ts"
 import type { ApprovalPolicy, EventSink, SensusEvent } from "../../../../src/agent/extensions.ts"
 import type { AuditBridge, AuditEntry } from "../../../../src/agent/audit.ts"
 import { loadSessionFile, SessionFile } from "../../../../src/session/store.ts"
+import { configureLogger, parseLogLine, type LogRecord } from "../../../../src/core/log.ts"
 import { reconstructHistoryEntries } from "../../../../src/agent/chat/contextHistory.ts"
 import { TOOL_SPEC_TOKENS } from "../../../../src/agent/chat/compaction.ts"
 import { renameSession } from "../../../../src/session/meta.ts"
@@ -237,6 +238,19 @@ async function until(f: () => boolean, ms = 5000, label = "condition"): Promise<
 const status = (h: Harness): string => h.chat.accessors.status()
 const messages = (h: Harness): ChatMessage[] => h.chat.accessors.messages()
 const cards = (h: Harness): ChatMessage[] => messages(h).filter((m) => m.role === "tool")
+
+/**
+ * Capture the process-wide structured log for the duration of one test
+ * (docs/logging.md). `restore` must run in a `finally`; the logger is global.
+ */
+function captureLogs(): { records: () => LogRecord[]; restore: () => void } {
+  const lines: string[] = []
+  configureLogger({ level: "debug", sink: (line) => lines.push(line) })
+  return {
+    records: () => lines.map((l) => parseLogLine(l)).filter((r): r is LogRecord => r !== null),
+    restore: () => configureLogger({ level: "error", sink: () => {} }),
+  }
+}
 
 const call = (name: string, args: unknown, id = `call_${name}`): { id: string; name: string; arguments: string } => ({
   id,
@@ -1175,6 +1189,74 @@ describe("ChatSession tool loop", () => {
     expect(cards(p).find((m) => m.tool?.name === "shell_background")?.tool?.status).toBe("aborted")
     expect(p.chat.pendingApproval()).toBeNull()
   }, 15000)
+
+  test("activity records: tool executed + turn completed carry status, duration and the abort reason", async () => {
+    const capture = captureLogs()
+    try {
+      // A normal turn: the tool execution and the settled outcome are recorded.
+      const h = makeSession(
+        [
+          { kind: "tool_calls", calls: [call("shell_background", { command: "echo LOGGED-TOOL" }, "lg1")] },
+          { kind: "stop", text: "done" },
+        ],
+        { sessionId: "inst-activity" },
+      )
+      h.chat.handleInput("/yolo")
+      h.chat.handleInput("run it")
+      await until(() => status(h) === "idle", 8000, "idle activity")
+      const recs = capture.records()
+      const ran = recs.find((r) => r.msg === "tool executed")
+      expect(ran?.level).toBe("info")
+      expect(ran?.component).toBe("agent.chat")
+      expect(ran?.attributes?.["session"]).toBe("inst-activity")
+      expect(ran?.attributes?.["tool"]).toBe("shell_background")
+      expect(ran?.attributes?.["target"]).toBe("echo LOGGED-TOOL")
+      expect(ran?.attributes?.["ok"]).toBe(true)
+      expect(ran?.attributes?.["aborted"]).toBe(false)
+      expect(ran?.attributes?.["exitCode"]).toBe(0)
+      expect(typeof ran?.attributes?.["durationMs"]).toBe("number")
+      const turn = recs.find((r) => r.msg === "turn completed")
+      expect(turn?.level).toBe("info")
+      expect(turn?.attributes?.["outcome"]).toBe("ok")
+      expect(turn?.attributes?.["reason"]).toBeUndefined()
+      expect(typeof turn?.attributes?.["durationMs"]).toBe("number")
+      expect(typeof turn?.attributes?.["model"]).toBe("string")
+
+      // An aborted turn names WHY on both the record and the seam event; the
+      // killed tool execution is recorded aborted.
+      const events: SensusEvent[] = []
+      const a = makeSession(
+        [
+          { kind: "tool_calls", calls: [call("shell_background", { command: "sleep 30" }, "ab1")] },
+          { kind: "stop", text: "never" },
+        ],
+        { sessionId: "inst-abort-reason", eventSink: () => ({ emit: (e) => events.push(e) }) },
+      )
+      a.chat.handleInput("/yolo")
+      a.chat.handleInput("start long")
+      await until(() => cards(a).some((m) => m.tool?.status === "running"), 8000, "running card")
+      a.chat.abort("rewind")
+      await until(() => status(a) === "idle", 8000, "idle abort reason")
+      const abortedRec = capture
+        .records()
+        .find((r) => r.msg === "turn completed" && r.attributes?.["outcome"] === "aborted")
+      expect(abortedRec?.attributes?.["reason"]).toBe("rewind")
+      const killed = capture
+        .records()
+        .find(
+          (r) =>
+            r.msg === "tool executed" &&
+            r.attributes?.["session"] === "inst-abort-reason" &&
+            r.attributes?.["aborted"] === true,
+        )
+      expect(killed).toBeDefined()
+      expect(killed?.attributes?.["ok"]).toBe(false)
+      const turnEvent = events.find((e) => e.type === "turn-complete")
+      expect(turnEvent?.type === "turn-complete" ? turnEvent.reason : undefined).toBe("rewind")
+    } finally {
+      capture.restore()
+    }
+  }, 20000)
 
   test("interaction tools: ask_user blocks for an answer; shell_session types through the pane handle", async () => {
     // ask_user: loop parks until answered; the answer feeds back as the tool result.

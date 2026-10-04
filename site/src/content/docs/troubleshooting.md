@@ -116,8 +116,10 @@ run, but the embedded terminal needs those platforms.
 ## Where the logs are
 
 `sensus daemon logs` renders the structured service log. Add `--follow` to stream, `--level`
-to filter by severity, and `--json` to pipe raw records to `jq`. See [CLI](/docs/cli/) for
-the flags and for the event and trigger logs.
+to filter by severity, and `--json` to pipe raw records to `jq`. It records what happened —
+tool runs, finished turns and why one was aborted, errors, and why the service last stopped
+or restarted — so a conversation that ended unexpectedly can be explained from the log.
+See [CLI](/docs/cli/) for the flags and for the event and trigger logs.
 
 ## Next steps
 

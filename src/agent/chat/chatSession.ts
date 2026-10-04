@@ -304,6 +304,13 @@ export class ChatSession {
   private controller: AbortController | null = null
   /** Epoch ms the current generation started (0 = none), for `turn-complete`. */
   private turnStartedAt = 0
+  /**
+   * Why the in-flight generation was aborted (`abort(reason)`; e.g. `"user"`,
+   * `"rewind"`, `"shell-exit"`, `"approval-timeout"`, `"shutdown"`). Read at
+   * settle to stamp the `turn completed` record and the `turn-complete` event;
+   * reset when a new turn starts. Null while a turn has not been aborted.
+   */
+  private abortReason: string | null = null
 
   /**
    * Transport-agnostic event listeners (IF3; docs/agent.md "Remote approval &
@@ -1240,7 +1247,7 @@ export class ChatSession {
     // Stop the in-flight work; the generationRewound flag keeps its late writes
     // (stray bubbles / provider messages / JSONL records) out of the rewind.
     this.generationRewound = true
-    this.abort()
+    this.abort("rewind")
     // A rewind discards the turn: any steer/queue accepted for it is dropped.
     this.pendingSteers.length = 0
     this.pendingQueue.length = 0
@@ -1506,7 +1513,7 @@ export class ChatSession {
   /** Cancel the plan (mouse "cancel") — aborts the turn like Esc. */
   planCancel(): boolean {
     if (this.pendingPlanMessage() === null) return false
-    this.abort()
+    this.abort("plan-cancel")
     return true
   }
 
@@ -1772,8 +1779,16 @@ export class ChatSession {
     }
   }
 
-  abort(): void {
+  /**
+   * Abort the in-flight generation. `reason` names WHY (docs/logging.md): the
+   * settle path stamps it on the `turn completed` record and the
+   * `turn-complete` seam event. Defaults to `"user"` (Esc / `chat.abort`); the
+   * daemon threads `"shell-exit"`, `"approval-timeout"`, `"prompt-orphaned"`
+   * and `"shutdown"`, and the engine uses `"rewind"` / `"plan-cancel"`.
+   */
+  abort(reason = "user"): void {
     if (this.controller) {
+      this.abortReason = reason
       this.controller.abort() // fetches stop AND a running hidden command dies
       this.deps.toast("aborting…")
     }
@@ -2328,8 +2343,10 @@ export class ChatSession {
     this.doomLoopSignature = null
     this.doomLoopCount = 0
     // A new generation clears any rewind latch (the previous generation must
-    // have fully settled before a send is accepted — see handleInput).
+    // have fully settled before a send is accepted — see handleInput) and any
+    // abort reason left over from a prior turn.
     this.generationRewound = false
+    this.abortReason = null
 
     // Session title (docs/sessions.md "Auto titles"): on the first prompt show
     // the derived first-user-message title immediately (the tab's placeholder
@@ -2400,7 +2417,7 @@ export class ChatSession {
           this.setStatus("idle")
           this.sStreamingSince[1](0)
           this.deps.onStatusChange?.("idle")
-          this.emitTurnComplete("aborted")
+          this.emitTurnComplete("aborted", this.abortReason ?? "user")
           return
         }
         if (failures.length > 0) {
@@ -2863,17 +2880,12 @@ export class ChatSession {
       // outcomes, and an incomplete reply must not be indistinguishable from a
       // complete one (docs/logging.md, events.md).
       const outcome = this.generationRewound || controller.signal.aborted ? "aborted" : failed || truncated || answerless ? "error" : "ok"
-      // Debug, not info: a per-turn line on every generation would drown the
-      // file. The loud cases (truncation/empty completion) log at warn above.
-      log.debug("turn settled", {
-        session: this.sessionId,
-        model,
-        outcome,
-        truncated,
-        answerless,
-        failed,
-      })
-      this.emitTurnComplete(outcome)
+      // The abort reason rides the settle: an aborted turn records WHY (Esc,
+      // rewind, shell exit, approval timeout, shutdown, plan cancel). The
+      // `turn completed` info record + seam event are emitted together by
+      // `emitTurnComplete` (one per generation — never a second record).
+      const reason = outcome === "aborted" ? this.abortReason ?? "user" : undefined
+      this.emitTurnComplete(outcome, reason, { truncated, answerless, failed })
       // Background-job visibility at turn end (docs/agent.md): a job the agent
       // started detached outlives the turn, so surface a NEW high-water mark as
       // it ends (a long-lived job does not toast every turn). The live count is
@@ -3125,6 +3137,28 @@ export class ChatSession {
     })
   }
 
+  /**
+   * One info record per EXECUTED tool call (docs/logging.md): the bounded
+   * target, status, exit code and whether an abort cut it short. Never called
+   * for a denied/blocked/interaction call, and never from `emitRan` itself —
+   * one record per execution, no double-log.
+   */
+  private logToolExecuted(
+    call: CompletedToolCall,
+    args: Record<string, unknown>,
+    exec: { ok: boolean; exitCode?: number | null; aborted: boolean; durationMs: number },
+  ): void {
+    log.info("tool executed", {
+      session: this.sessionId,
+      tool: call.name,
+      target: eventTarget(call.name, args),
+      ok: exec.ok,
+      aborted: exec.aborted,
+      ...(exec.exitCode !== undefined ? { exitCode: exec.exitCode } : {}),
+      durationMs: exec.durationMs,
+    })
+  }
+
   private emitMemoryWrite(info: MemoryWriteInfo): void {
     this.emit({
       type: "memory-write",
@@ -3160,6 +3194,15 @@ export class ChatSession {
 
   /** A provider/compaction/tool error surfaced (docs/events.md). */
   private emitErrorRaised(source: string, message: string, tool?: string): void {
+    // Activity record (docs/logging.md): surfaced errors are filterable at
+    // error level (`sensus daemon logs --level error`). The message is already
+    // user-facing/bounded; the logger redacts known secret shapes.
+    log.error("error raised", {
+      session: this.sessionId,
+      source,
+      ...(tool !== undefined ? { tool } : {}),
+      message,
+    })
     this.emit({
       type: "error-raised",
       ts: Date.now(),
@@ -3170,18 +3213,38 @@ export class ChatSession {
     })
   }
 
-  /** One `turn-complete` per settled generation (idempotent by generation). */
-  private emitTurnComplete(outcome: "ok" | "aborted" | "error"): void {
+  /**
+   * One `turn-complete` per settled generation (idempotent by generation), plus
+   * the matching `turn completed` info record (docs/logging.md). `reason`
+   * explains an abort; `detail` distinguishes an error outcome. Both callers
+   * (the generation finally and the early MCP-connect abort) go through here so
+   * a turn is never double-logged.
+   */
+  private emitTurnComplete(
+    outcome: "ok" | "aborted" | "error",
+    reason?: string,
+    detail?: { truncated: boolean; answerless: boolean; failed: boolean },
+  ): void {
     if (this.turnStartedAt === 0) return
     const durationMs = Math.max(0, Date.now() - this.turnStartedAt)
     this.turnStartedAt = 0
+    const model = this.modelName()
+    log.info("turn completed", {
+      session: this.sessionId,
+      model,
+      outcome,
+      durationMs,
+      ...(reason !== undefined ? { reason } : {}),
+      ...(detail !== undefined ? detail : {}),
+    })
     this.emit({
       type: "turn-complete",
       ts: Date.now(),
       session: this.sessionId,
       durationMs,
       outcome,
-      model: this.modelName(),
+      model,
+      ...(reason !== undefined ? { reason } : {}),
     })
   }
 
@@ -3422,6 +3485,7 @@ export class ChatSession {
         return msg
       }
       this.patchToolCard(call.id, { status: "running", diff: plan.diff })
+      const startedAt = Date.now()
       try {
         const before = plan.existed ? safeRead(plan.path) : null
         const applied = applyFilePlan(plan)
@@ -3435,6 +3499,7 @@ export class ChatSession {
           before,
         })
         this.emitRan(call, true)
+        this.logToolExecuted(call, args, { ok: true, aborted: false, durationMs: Date.now() - startedAt })
         this.emitFileChange(call.name, plan.path, true)
         this.book.updateCard(call, "done", applied, {}, null, applied)
         return applied
@@ -3442,12 +3507,14 @@ export class ChatSession {
         const msg = `${call.name}: write failed (${errorMessage(e)})`
         this.book.updateCard(call, "error", msg, {}, null, msg)
         this.emitRan(call, false)
+        this.logToolExecuted(call, args, { ok: false, aborted: false, durationMs: Date.now() - startedAt })
         this.emitFileChange(call.name, plan.path, false)
         return msg
       }
     }
 
     this.patchToolCard(call.id, { status: "running" })
+    const startedAt = Date.now()
     const exec = await executeTool(call.name, args, {
       pane: this.terminalSnapshot()?.pane ?? null,
       paneCwd: this.paneCwd(),
@@ -3490,15 +3557,23 @@ export class ChatSession {
       ok: exec.ok,
     })
     this.emitRan(call, exec.ok, exec.exitCode)
+    const aborted = signal.aborted
+    // Activity record (docs/logging.md): one per executed call. The target is
+    // the same bounded `command-ran` projection (never stdin/sudo secrets).
+    this.logToolExecuted(call, args, {
+      ok: exec.ok,
+      exitCode: exec.exitCode,
+      aborted,
+      durationMs: Date.now() - startedAt,
+    })
     if (exec.memoryWrite !== undefined) this.emitMemoryWrite(exec.memoryWrite)
     // v1 skill usage (docs/events.md): the skill body was actually read.
     if (call.name === "skill_view" && exec.ok) this.emitSkillUse(String(args["name"] ?? "").trim())
     // v1 raised error (docs/events.md): a genuine tool failure, NOT a shell
     // command's non-zero exit (that is a normal `tool.executed` result).
-    if (!exec.ok && !signal.aborted && call.name !== "shell_background" && call.name !== "shell_session") {
+    if (!exec.ok && !aborted && call.name !== "shell_background" && call.name !== "shell_session") {
       this.emitErrorRaised("tool", exec.preview.length > 0 ? exec.preview : exec.result, call.name)
     }
-    const aborted = signal.aborted
     this.book.updateCard(
       call,
       aborted ? "aborted" : exec.ok ? "done" : "error",

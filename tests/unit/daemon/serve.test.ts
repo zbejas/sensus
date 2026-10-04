@@ -10,7 +10,7 @@ import { describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { readToken, startDaemon, daemonSocketPath, daemonTokenPath, DEFAULT_DAEMON_HOST, displayHost, resolveDaemonBind, type StartDaemonResult } from "../../../src/daemon/index.ts"
+import { classifyPriorDaemon, readToken, startDaemon, daemonSocketPath, daemonTokenPath, DEFAULT_DAEMON_HOST, displayHost, resolveDaemonBind, type StartDaemonResult } from "../../../src/daemon/index.ts"
 
 const TOKEN = "feedfacefeedfacefeedfacefeedface"
 
@@ -134,6 +134,23 @@ describe("daemon serve: filesystem, loopback and lifecycle", () => {
     } finally {
       result?.ok && result.stop()
       rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("daemon boot restart-reason classification (docs/logging.md)", () => {
+  test("names why the previous daemon is gone from the pidfile/socket/health facts", () => {
+    // [facts, expected] variants — one scenario, parametrized (docs/testing.md).
+    const cases: Array<[Parameters<typeof classifyPriorDaemon>[0], ReturnType<typeof classifyPriorDaemon>]> = [
+      [{ pidPresent: false, pidAlive: false, healthy: false, socketPresent: false }, "clean"],
+      [{ pidPresent: false, pidAlive: false, healthy: false, socketPresent: true }, "stale-socket"],
+      [{ pidPresent: true, pidAlive: false, healthy: false, socketPresent: true }, "stale-pid"],
+      [{ pidPresent: true, pidAlive: false, healthy: false, socketPresent: false }, "stale-pid"],
+      [{ pidPresent: true, pidAlive: true, healthy: false, socketPresent: true }, "unresponsive"],
+      [{ pidPresent: true, pidAlive: true, healthy: true, socketPresent: true }, "running"],
+    ]
+    for (const [facts, expected] of cases) {
+      expect(classifyPriorDaemon(facts)).toBe(expected)
     }
   })
 })

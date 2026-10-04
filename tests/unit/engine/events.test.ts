@@ -100,6 +100,14 @@ describe("event schema v1 (toEventV1)", () => {
     }
     expect(toEventV1(EVENTS[3]!, "inst")).toMatchObject({ tool: "shell_background", command: "echo hi", ok: true, exitCode: 0 })
     expect(toEventV1(EVENTS[7]!, "inst")).toMatchObject({ source: "provider", message: "boom", tool: "shell_background" })
+    // The raw seam event now carries an optional abort reason, but the frozen
+    // v1 schema keeps dropping it (docs/events.md).
+    const abortedTurn = toEventV1(
+      { type: "turn-complete", ts: 9, session: "s1", durationMs: 10, outcome: "aborted", model: "main@gpt", reason: "shell-exit" },
+      "inst",
+    )
+    expect(abortedTurn).toMatchObject({ type: "turn.completed", outcome: "aborted" })
+    expect(abortedTurn !== null && "reason" in abortedTurn).toBe(false)
   })
 
   test("drops the two seam events with no v1 counterpart and caps long fields", () => {

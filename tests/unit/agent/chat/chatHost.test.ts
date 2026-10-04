@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { ChatHost, type ConfigChangeKind } from "../../../../src/agent/chat/chatHost.ts"
 import { applyChatDisplayConfig } from "../../../../src/agent/chat/chatSession.ts"
 import { defaultConfig, loadConfig } from "../../../../src/config/config.ts"
+import { configureLogger, parseLogLine, type LogRecord } from "../../../../src/core/log.ts"
 import type { SensusEvent } from "../../../../src/agent/extensions.ts"
 import { sessionMetaPath } from "../../../../src/session/meta.ts"
 import type { ChatProvider, StreamResult } from "../../../../src/agent/provider/provider.ts"
@@ -116,41 +117,64 @@ describe("ChatHost.onConfigChange (the single config-change seam)", () => {
 
 describe("ChatHost extensions seam (docs/extensions.md)", () => {
   test("createTabChat emits session-start; reload rebuilds the sink; a throwing factory degrades to the no-op defaults", () => {
-    const events: SensusEvent[] = []
-    const host = new ChatHost({
-      dataDir: "/tmp/sensus/chathost-ext-test",
-      instanceId: "inst-ext",
-      initialConfig: defaultConfig(),
-      argv: [],
-      toast: () => {},
-      eventSinkFactory: () => ({ emit: (e) => events.push(e) }),
-      approvalPolicyFactory: () => null,
-    })
-    host.createTabChat(1)
-    host.createTabChat(2)
-    const starts = events.filter((e) => e.type === "session-start")
-    expect(starts).toHaveLength(2)
-    const start = starts[0]
-    if (start?.type === "session-start") {
-      expect(start.session).toBe("inst-ext")
-      expect(start.resumed).toBe(false)
-      expect(start.agent).toBe("copilot")
-    }
-    // /reload rebuilds the sink through the factory without throwing.
-    expect(host.reload("user")).not.toBeNull()
+    const lines: string[] = []
+    configureLogger({ level: "debug", sink: (line) => lines.push(line) })
+    try {
+      const events: SensusEvent[] = []
+      const host = new ChatHost({
+        dataDir: "/tmp/sensus/chathost-ext-test",
+        instanceId: "inst-ext",
+        initialConfig: defaultConfig(),
+        argv: [],
+        toast: () => {},
+        eventSinkFactory: () => ({ emit: (e) => events.push(e) }),
+        approvalPolicyFactory: () => null,
+      })
+      const chat1 = host.createTabChat(1)
+      host.createTabChat(2)
+      const starts = events.filter((e) => e.type === "session-start")
+      expect(starts).toHaveLength(2)
+      const start = starts[0]
+      if (start?.type === "session-start") {
+        expect(start.session).toBe("inst-ext")
+        expect(start.resumed).toBe(false)
+        expect(start.agent).toBe("copilot")
+      }
+      // Releasing a tab records the matching `session ended` + reason.
+      host.endTabChat(chat1, "shutdown")
+      // The same lifecycle is recorded as structured activity (docs/logging.md).
+      const recs = lines.map((l) => parseLogLine(l)).filter((r): r is LogRecord => r !== null)
+      const startedRecs = recs.filter(
+        (r) => r.msg === "session started" && r.attributes?.["session"] === "inst-ext",
+      )
+      expect(startedRecs).toHaveLength(2)
+      expect(startedRecs[0]?.level).toBe("info")
+      expect(startedRecs[0]?.component).toBe("agent.chat")
+      expect(startedRecs[0]?.attributes?.["tab"]).toBe(1)
+      expect(startedRecs[0]?.attributes?.["resumed"]).toBe(false)
+      const ended = recs.find((r) => r.msg === "session ended" && r.attributes?.["session"] === "inst-ext")
+      expect(ended?.level).toBe("info")
+      expect(ended?.attributes?.["reason"]).toBe("shutdown")
+      expect(events.some((e) => e.type === "session-end" && e.reason === "shutdown")).toBe(true)
 
-    // A throwing factory must degrade to the no-op default, never fail boot.
-    const bad = new ChatHost({
-      dataDir: "/tmp/sensus/chathost-ext-bad",
-      instanceId: "inst-bad",
-      initialConfig: defaultConfig(),
-      argv: [],
-      toast: () => {},
-      eventSinkFactory: () => {
-        throw new Error("boom")
-      },
-    })
-    expect(() => bad.createTabChat(1)).not.toThrow()
+      // /reload rebuilds the sink through the factory without throwing.
+      expect(host.reload("user")).not.toBeNull()
+
+      // A throwing factory must degrade to the no-op default, never fail boot.
+      const bad = new ChatHost({
+        dataDir: "/tmp/sensus/chathost-ext-bad",
+        instanceId: "inst-bad",
+        initialConfig: defaultConfig(),
+        argv: [],
+        toast: () => {},
+        eventSinkFactory: () => {
+          throw new Error("boom")
+        },
+      })
+      expect(() => bad.createTabChat(1)).not.toThrow()
+    } finally {
+      configureLogger({ level: "error", sink: () => {} })
+    }
   })
 })
 

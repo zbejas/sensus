@@ -331,7 +331,7 @@ describe("daemon lifecycle: state machine", () => {
 
   test("a no-client prompt holds, then is denied and the turn aborted (D10)", async () => {
     const denied: string[] = []
-    const aborted: string[] = []
+    const aborted: Array<{ id: string; reason?: string }> = []
     let pending = ["c1"]
     const { lc } = lifecycle({
       pendingPromptChats: () => pending,
@@ -341,7 +341,7 @@ describe("daemon lifecycle: state machine", () => {
         pending = []
         return true
       },
-      abortTurn: (id) => aborted.push(id),
+      abortTurn: (id, reason) => aborted.push({ id, reason }),
     })
     lc.start()
     await Bun.sleep(15)
@@ -349,7 +349,8 @@ describe("daemon lifecycle: state machine", () => {
     expect(denied).toEqual([])
     await Bun.sleep(80)
     expect(denied).toEqual(["c1"])
-    expect(aborted).toEqual(["c1"])
+    // The timeout names its cause on the turn's structured record.
+    expect(aborted).toEqual([{ id: "c1", reason: "approval-timeout" }])
     lc.stop()
   })
 

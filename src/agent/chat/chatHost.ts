@@ -574,6 +574,17 @@ export class ChatHost {
       model: this.header().model,
       resumed: resumePath !== undefined,
     })
+    // Activity record (docs/logging.md): the same facts, filterable at info.
+    log.info("session started", {
+      session: this.instanceId,
+      tab: tabIndex,
+      path: state.file.filePath,
+      agent: this.config.defaultAgent,
+      approval: this.config.approval,
+      shell: this.config.shell,
+      model: this.header().model,
+      resumed: resumePath !== undefined,
+    })
     return chat
   }
 
@@ -583,6 +594,8 @@ export class ChatHost {
    * close in v1 (a chat survives client detach). Fire-and-forget; never throws.
    */
   endTabChat(chat: ChatSession, reason = "closed"): void {
+    // Activity record (docs/logging.md): the matching `session ended` at info.
+    log.info("session ended", { session: this.instanceId, reason, path: chat.sessionFilePath })
     chat.endSession(reason)
   }
 

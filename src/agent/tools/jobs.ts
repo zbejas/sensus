@@ -192,6 +192,7 @@ export async function runHiddenCommand(opts: {
   const kill = (why: "timeout" | "abort"): void => {
     if (why === "timeout") timedOut = true
     else aborted = true
+    log.debug("hidden command killed", { why })
     killProcessTree(proc, false)
     setTimeout(() => killProcessTree(proc, true), 2000)
   }
@@ -210,6 +211,10 @@ export async function runHiddenCommand(opts: {
     Bun.sleep(150).then(() => false),
   ])
   if (!drained) {
+    // Visibility for the drain race losing (docs/logging.md): the command is
+    // deliberately NOT logged — a hidden command can embed a secret and the
+    // logger only redacts known secret shapes. timedOut/aborted name the cause.
+    log.warn("hidden command force-drained", { timedOut, aborted })
     // A straggler still holds a pipe (no setsid): cancel through each pump's
     // reader. Directly cancelling the stream rejects when it is locked (the
     // pump holds the lock) — an unhandled rejection that crashed the daemon —

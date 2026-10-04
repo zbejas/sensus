@@ -581,6 +581,12 @@ stdio banner — `daemonLogPath`). It is configured at boot in `serve.ts` throug
 and rotation). Records carry the `component`, `instanceId` and (for REST requests) a
 `corrId`; the boot bearer token is redacted by literal value.
 
+The log records **activity, not just lifecycle**: `session started`/`session ended`,
+`tool executed` (status, exit code, duration, a bounded target), `turn completed`
+(outcome + why an abort happened), `error raised`, the hidden-shell force-drain warn, and
+the daemon's `previous` restart reason on `daemon started` / `reason` on
+`daemon stopping`. Filter with `--component agent.chat` or `--level warn`.
+
 Env vars:
 
 - `SENSUS_LOG_LEVEL` — minimum level (`trace|debug|info|warn|error`, default `info`).

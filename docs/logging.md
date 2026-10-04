@@ -91,6 +91,39 @@ nor scope is present, `corrId` is omitted.
 - **No public method or the write path throws** (AGENTS.md rule 10): a failed write drops the
   batch; serialization of circular/weird values cannot throw.
 
+### Activity records
+
+The daemon does not only log lifecycle — it records what the agent actually did, all at
+`info` so `--component`/`--level` can filter it:
+
+| Component | `msg` | Fields |
+|---|---|---|
+| `agent.chat` | `session started` | `session`, `tab`, `path`, `agent`, `approval`, `shell`, `model`, `resumed` |
+| `agent.chat` | `session ended` | `session`, `path`, `reason` (`"shutdown"`/`"closed"`) |
+| `agent.chat` | `tool executed` | `tool`, `target` (the bounded `command-ran` target — command/path/query, never stdin), `ok`, `aborted`, `exitCode?`, `durationMs` |
+| `agent.chat` | `turn completed` | `outcome` (`ok`/`aborted`/`error`), `reason?` (why an abort), `durationMs`, `model`, `truncated`/`answerless`/`failed` (error detail) |
+| `agent.chat` | `error raised` | `source` (`provider`/`compaction`/`tool`/`engine`), `message`, `tool?` — level `error` |
+| `agent.tools` | `hidden command force-drained` | `timedOut`, `aborted` — level `warn` |
+| `daemon.serve` | `daemon started` | `previous` — why the prior daemon is gone (plus the existing `socket`/`host`/`port`/`persistent`) |
+| `daemon.serve` | `daemon stopping` | `reason` — why this one is stopping (plus the existing `socket`) |
+
+- **One record per fact.** A settled generation emits exactly one `turn completed` (the
+  old debug-only `turn settled` line is gone); an executed tool call emits exactly one
+  `tool executed` (never also from `emitRan`). Denied/blocked/interaction calls emit none.
+- **Abort reasons** are threaded from every caller: `user` (Esc / `chat.abort`),
+  `rewind` (a rewind), `plan-cancel` (the plan card's cancel), `shell-exit` (the bound
+  pane died), `approval-timeout` (the D10 no-client hold), `prompt-orphaned` (the last
+  watcher left while others remain), `shutdown` (`daemon stop`). The reason rides the
+  `turn-complete` seam event too; the frozen v1 schema still drops it (docs/events.md).
+- **Restart/stop reasons.** The foreground CLI classifies the pidfile/socket/health it
+  found at boot into `previous`: `clean` (nothing), `stale-pid` (dead pid), `stale-socket`
+  (socket, no pidfile), `unresponsive` (live pid, failed health). `daemon stopping`
+  carries `signal:SIGINT|SIGTERM|SIGHUP`, `idle` (grace expired), `crash` (uncaught
+  exception) or `requested` (a programmatic `stop()`). `stop()` is idempotent — only the
+  first reason is recorded, so an idle exit emits one stopping record.
+- **The force-drain warn omits the command** on purpose: a hidden command may embed a
+  secret and the logger only redacts known secret shapes.
+
 ### The reader API
 
 `parseLogLine(line): LogRecord | null` parses one line; blank/garbage lines (including a

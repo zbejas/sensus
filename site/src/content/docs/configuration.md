@@ -144,7 +144,7 @@ The `chat` section controls how the sidebar presents a conversation:
 
 - `chat.thinking`: `hide` (default) collapses reasoning to a one-line summary you can expand; `show` keeps it expanded. `Alt+T` toggles the newest block, `/thinking` changes the session default.
 - `chat.animations` (default on): spinners, streaming reveal pacing, and entrance effects. Turn it off for a still UI.
-- `chat.cardStyle`: `fill` (default) draws solid panels; `border` draws outlined cards. `Alt+C` or `/cards` toggles it.
+- `chat.cardStyle`: `border` (default) draws outlined cards; `fill` draws solid panels. `Alt+C` or `/cards` toggles it.
 - `chat.maxToolTurns`: limits how many tool round-trips one message may take (default: no limit; the settings screen offers 25, 50, 100, or off).
 - `chat.busySend`: what `Enter` does while a reply is still streaming: `steer` (default) feeds your message into the running turn, `queue` sends it after. `Alt+Enter` uses the other mode for that message.
 

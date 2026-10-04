@@ -180,8 +180,8 @@ describe("RemoteChat + chat control ops", () => {
         expect(chat.slashMenu()).toBeNull()
 
         // Display toggles are local.
-        expect(chat.toggleCardStyle()).toBe("border")
-        expect(chat.accessors.cardStyle()).toBe("border")
+        expect(chat.toggleCardStyle()).toBe("fill")
+        expect(chat.accessors.cardStyle()).toBe("fill")
 
         // Plan line edits are local; commit sends the decisions (no pending
         // plan here, so it reports false).

@@ -111,7 +111,7 @@ The full path each of these resolves to is implemented in `src/config/config.ts`
     "contextLimit": 0
   },
   "compaction": { "auto": true, "prune": false, "tail_turns": 0, "preserve_recent_tokens": 15000, "reserved": 20000 },
-  "chat": { "thinking": "hide", "toolOutput": "collapsed", "animations": true, "cardStyle": "fill", "maxToolTurns": null, "busySend": "steer" },
+  "chat": { "thinking": "hide", "toolOutput": "collapsed", "animations": true, "cardStyle": "border", "maxToolTurns": null, "busySend": "steer" },
   "titles": { "enabled": true, "model": "" },
   "mcp": { "servers": { "playwright": { "command": "npx", "args": ["@playwright/mcp@latest"] } } },
   "sidebar": { "width": 50 },
@@ -558,10 +558,11 @@ already-rendered bubble restyles without a restart:
   caret blink. `false` renders a static `⋯` glyph, shows streamed text unpaced, skips the
   entrance effects, and holds the input caret solid. `SENSUS_REDUCED_MOTION` (truthy) also
   forces the caret solid, independent of this key.
-- `cardStyle` (default `"fill"`): `"fill"` renders solid themed panels
-  filled with the theme `cardBg` panel token, with notched block corners and the
-  message body floating one column inside the chat card's border. `"border"` draws rounded bordered
-  cards with no fill (the adaptive `terminal` theme stays background-free).
+- `cardStyle` (default `"border"`): `"border"` draws rounded bordered cards
+  with no fill, so the adaptive `terminal` theme stays background-free. `"fill"`
+  renders solid themed panels filled with the theme `cardBg` panel token, with
+  notched block corners and the message body floating one column inside the chat
+  card's border.
   `/cards` toggles it for the session;
   `Alt+C` and the Ctrl+P "Toggle card style" row flip the session too. The settings
   Chat row persists immediately AND re-applies to every open tab, so existing bubbles

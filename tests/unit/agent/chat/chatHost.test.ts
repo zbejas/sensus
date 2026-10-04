@@ -89,19 +89,19 @@ describe("ChatHost.onConfigChange (the single config-change seam)", () => {
       applyChatDisplayConfig(chat, host.getConfig().chat)
     })
     // A session-scoped display toggle (Alt+C / `/cards`) overrides the config.
-    chat.toggleCardStyle() // "fill" -> "border"
-    expect(chat.accessors.cardStyle()).toBe("border")
+    chat.toggleCardStyle() // "border" -> "fill"
+    expect(chat.accessors.cardStyle()).toBe("fill")
     // Internal reload (e.g. a model pick) must NOT clobber it.
     expect(host.reload()).not.toBeNull()
-    expect(chat.accessors.cardStyle()).toBe("border")
-    // A user reload re-seeds from config (the default "fill").
-    expect(host.reload("user")).not.toBeNull()
     expect(chat.accessors.cardStyle()).toBe("fill")
+    // A user reload re-seeds from config (the default "border").
+    expect(host.reload("user")).not.toBeNull()
+    expect(chat.accessors.cardStyle()).toBe("border")
     // A settings write re-seeds too.
     chat.toggleCardStyle()
-    expect(chat.accessors.cardStyle()).toBe("border")
-    expect(host.reload("settings")).not.toBeNull()
     expect(chat.accessors.cardStyle()).toBe("fill")
+    expect(host.reload("settings")).not.toBeNull()
+    expect(chat.accessors.cardStyle()).toBe("border")
   })
 
   test("the chat `/reload` slash command arrives as user kind (the agent tool shares the dep)", () => {

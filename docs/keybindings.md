@@ -71,7 +71,7 @@ default, and the global hotkey layer is re-installed immediately. Actions: `focu
 | `Ctrl+C` / `Ctrl+Shift+C` | copy the current selection (chat or terminal) | selection-copy layer; without a selection it falls through (`^C` to the pane, or a draft clear in chat) |
 | `Alt+T` | toggle the most recent thinking block | per-message override; `/thinking` changes the session default |
 | `Alt+E` | toggle the most recent tool card's output expansion | per-card override; `/details` changes the session default |
-| `Alt+C` | toggle the message card style | `fill` (solid notched panel) ⇄ `border`; `/cards` also works |
+| `Alt+C` | toggle the message card style | `border` (default; rounded outlined card) ⇄ `fill` (solid notched panel); `/cards` also works |
 | `Alt+End` | jump the chat to the newest message | unpins/returns to the sticky bottom after a manual scroll-up; also the palette's "Jump to latest" |
 | `Alt+Home` | toggle the chat-only view | hides the terminal pane + tab rail and gives the chat the full width, keeping the top tab bar and status bar — for narrow/mobile terminals. Ephemeral: the configured `layout` is untouched, focus is clamped to the chat, and the palette's "Chat-only view" row is the pointer equivalent. A narrow terminal (≤90 cols) starts here automatically (`autoChatOnly`, default on); the key overrides the auto-switch for the session |
 | `Alt+B` | copy the newest message (or the live selection) | `copy-message`; keyboard parity for the `⧉ copy` label affordance — a selection wins when one exists |

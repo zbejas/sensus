@@ -10,14 +10,15 @@ home here; [`config.md`](config.md) documents the config keys that tune it and
 
 The terminal is the product; sensus is chrome around it. The default adaptive theme
 keeps chrome **background-free**, so the user's own terminal palette shows through and
-sensus looks native next to their shell — the one deliberate fill is the chat's message
-panels (`chat.cardStyle: "fill"`, the default). Structure is neutral — muted text, quiet
-bars, grey borders — while the chromatic accent is reserved for meaning: focused box
-titles, selection, active tabs. The agent sidebar is calm until it has something to say.
+sensus looks native next to their shell — message cards default to rounded borders
+(`chat.cardStyle: "border"`); the opt-in fill panels (`chat.cardStyle: "fill"`) are the
+one deliberate exception. Structure is neutral — muted text, quiet bars, grey borders —
+while the chromatic accent is reserved for meaning: focused box titles, selection, active
+tabs. The agent sidebar is calm until it has something to say.
 
 Key characteristics:
 
-- Zero painted backgrounds in the default `terminal` theme's chrome; the chat message
+- Zero painted backgrounds in the default `terminal` theme's chrome; the opt-in chat fill
   panels are the deliberate exception (see the zero-background invariant).
 - Neutral structure (palette-index greys) + one accent for focus/selection.
 - Focus reads through the border **title** color, not a full accent border.
@@ -278,18 +279,18 @@ warning toast pointing back at `themePalette.colorMode`.
 
 With the overlays closed and the `terminal` theme active, the TUI's chrome must emit
 **zero** background SGRs (`48;2;`, `48;5;`, `40`–`47`) apart from the one deliberate
-exception below. This is verified black-box with `capture-pane -e` in the smoke suite
-with `chat.cardStyle: "border"` pinned, where the count must be exactly zero. Three
-consequences:
+exception below. This holds under the default `chat.cardStyle: "border"`; the smoke suite
+verifies it black-box with `capture-pane -e` (border pinned), where the count must be
+exactly zero. Three consequences:
 
 - Style props that disappear between renders do **not** reset. A live theme switch must
   explicitly SET `backgroundColor`/`bg` to `"transparent"` — the `bgProps` /
   `borderProps` / `textBgProps` helpers enforce this.
 - Pane **content** backgrounds are exempt: `48;5;N` / `48;2;r;g;b` from the inner app, and
   the default bg painted by `PanePainter`, are legitimate and expected.
-- **Chat message panels** in `chat.cardStyle: "fill"` (the default) paint the theme
-  `cardBg` panel. This is the one chrome exception; `"border"` keeps the chrome
-  background-free everywhere. The guard pins `"border"`. A fill panel keeps its box
+- **Chat message panels** in `chat.cardStyle: "fill"` (opt-in; not the default) paint the
+  theme `cardBg` panel. This is the one chrome exception; the default `"border"` keeps
+  the chrome background-free everywhere. A fill panel keeps its box
   background transparent and paints the surface on an inner body, because a box
   background would also cover the border cells and square off the notched block corners.
 - **Transient pointer hover** fills (`selectionBg` on the row under the cursor) are exempt
@@ -408,11 +409,11 @@ the keyboard resize (min 30 / 50%); the pure math lives in `ui/lib/layout.ts`
 - **Messages:** one card per message under a reference-keyed `<For>`, inside a
   native `<scrollbox>` (sticky to the bottom while streaming, free wheel scroll
   otherwise; `Alt+End`/`End` return to the newest message after a manual
-  scroll-up). `chat.cardStyle` (default `"fill"`) renders solid `cardBg`
-  panels with notched block corners — full-block `█` edges and quarter-cell
-  `▟▙▜▛` corners, because a fill-colored rounded corner glyph on a filled box
-  background would read as a square; `"border"` renders rounded bordered cards
-  with no fill and keeps the adaptive theme background-free
+  scroll-up). `chat.cardStyle` (default `"border"`) renders rounded bordered
+  cards with no fill and keeps the adaptive theme background-free; `"fill"`
+  renders solid `cardBg` panels with notched block corners — full-block `█`
+  edges and quarter-cell `▟▙▜▛` corners, because a fill-colored rounded corner
+  glyph on a filled box background would read as a square
   (`/cards`, `Alt+C`, the settings Chat row). Both styles carry no inner
   horizontal padding, so their text sits flush against the panel edge, and the
   message body floats one column inside the chat card's border (the panels never
@@ -502,8 +503,9 @@ Animation is throttled and optional (`chat.animations: false` disables it):
   wrapped text never reflows) plus a border highlight. The entrance is tracked **once per
   message id**, so the streaming block's per-delta remount never replays it, and
   historical/resumed messages (old timestamps) never animate. Toggling a
-  thinking/tool-output block flashes the card border (visible in `cardStyle: "border"`;
-  the `"fill"` panel has no visible border). The streaming caret `▌` pulses
+  thinking/tool-output block flashes the card border (visible in the default
+  `cardStyle: "border"`; the opt-in `"fill"` panel has no visible border). The streaming
+  caret `▌` pulses
   accent↔muted.
 - Streamed text is revealed through a paced typewriter pour (ease-out catch-up) so burst
   deltas unfurl instead of popping; the "streaming" state is held until the pour lands.
@@ -535,8 +537,9 @@ is only the fallback and sensus never writes its own emulator.
 **Do:**
 
 - Do drive every color through a theme token; no hardcoded colors in `src/ui/`.
-- Do preserve the zero-background invariant when adding chrome (the chat `fill` panels are
-  the deliberate exception); verify with `capture-pane -e` in `cardStyle: "border"`.
+- Do preserve the zero-background invariant when adding chrome (the opt-in chat `fill`
+  panels are the deliberate exception); verify with `capture-pane -e` under the default
+  `cardStyle: "border"`.
 - Do keep the tab bar and status bar as single text rows with region-mapped clicks; build
   them through the shared `ui/lib/bar.ts` kit (muted label + value tones, selection fill on
   hover, accent flash on press) so the bars match every other clickable row.

@@ -186,7 +186,7 @@
               allows password auth and root logins, so the next run can get in.
             </div>
           </div>
-          <div class="panel tool">
+          <div class="panel tool pending">
             <div class="tool-head">▸ shell_background</div>
             <div class="tool-detail">  sudo tee /etc/ssh/sshd_config.d/hardening.conf &lt;&lt;'EOF'</div>
             <div class="tool-detail">  PermitRootLogin prohibit-password</div>
@@ -217,7 +217,7 @@
               restarted 34 times and never gets past startup.
             </div>
           </div>
-          <div class="panel tool">
+          <div class="panel tool pending">
             <div class="tool-head">▸ shell_background</div>
             <div class="tool-detail">  sed -i 's/^DB_HOST=.*/DB_HOST=db/' .env</div>
             <div class="tool-detail">  docker compose up -d --force-recreate web</div>
@@ -248,7 +248,7 @@
               Nothing running needs the cache, so it can go without a restart.
             </div>
           </div>
-          <div class="panel tool">
+          <div class="panel tool pending">
             <div class="tool-head">▸ shell_background</div>
             <div class="tool-detail">  sudo docker system prune -af</div>
             <div class="tool-detail">  sudo journalctl --vacuum-size=500M</div>
@@ -761,29 +761,20 @@
     }
   }
 
-  /* The TUI's fill cards are not rounded: the panel is a solid surface with a
-     half-cell notch cut from each corner (the quadrant block glyphs
-     ▟ ▙ ▜ ▛, docs/DESIGN.md "Chat sidebar"). Mirror the step, not an arc. */
+  /* The default border cards: rounded like the TUI's `╭ ╮ ╰ ╯` glyphs (one
+     terminal cell, ~5px) with no fill, matching `chat.cardStyle: "border"`.
+     A pending card (tool approval, plan) carries the accent border, like the
+     app's cardBorder (docs/DESIGN.md "Chat sidebar"). */
   .panel {
-    --notch-x: 4px;
-    --notch-y: 7px;
     min-width: 0;
     padding: 0.45rem 0.6rem;
-    background: var(--bg-card);
-    clip-path: polygon(
-      var(--notch-x) 0,
-      calc(100% - var(--notch-x)) 0,
-      calc(100% - var(--notch-x)) var(--notch-y),
-      100% var(--notch-y),
-      100% calc(100% - var(--notch-y)),
-      calc(100% - var(--notch-x)) calc(100% - var(--notch-y)),
-      calc(100% - var(--notch-x)) 100%,
-      var(--notch-x) 100%,
-      var(--notch-x) calc(100% - var(--notch-y)),
-      0 calc(100% - var(--notch-y)),
-      0 var(--notch-y),
-      var(--notch-x) var(--notch-y)
-    );
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: transparent;
+  }
+
+  .panel.pending {
+    border-color: var(--accent);
   }
 
   .panel.user {

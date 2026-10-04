@@ -83,7 +83,7 @@ After a write — or /reload — config is re-resolved live. Unknown keys warn a
   "instructions": ["~/notes/style.md", "docs/*.md", "https://example.com/rules.md"],
   "context": { "scrollbackLines": 100, "enabled": true, "autoCompact": true, "keepTokens": 15000, "bufferTokens": 20000, "contextLimit": 0 },
   "compaction": { "auto": true, "prune": false, "tail_turns": 0, "preserve_recent_tokens": 15000, "reserved": 20000 },
-  "chat": { "thinking": "hide", "toolOutput": "collapsed", "animations": true, "cardStyle": "fill", "maxToolTurns": null, "busySend": "steer" },
+  "chat": { "thinking": "hide", "toolOutput": "collapsed", "animations": true, "cardStyle": "border", "maxToolTurns": null, "busySend": "steer" },
   "tool_output": { "max_lines": 2000, "max_bytes": 51200 },
   "memory": { "enabled": true, "memoryCharLimit": 2200, "hostCharLimit": 4000, "journalCharLimit": 8000, "writeApproval": false, "redactSecrets": true },
   "titles": { "enabled": true, "model": "" },

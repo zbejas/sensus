@@ -105,8 +105,8 @@ export interface ChatDisplayConfig {
   toolOutput: "collapsed" | "expanded"
   /** Run animations (spinner frames while streaming / tools / thinking). */
   animations: boolean
-  /** Message card style: "fill" (default) = borderless themed panel;
-   * "border" = rounded bordered card with no fill. */
+  /** Message card style: "border" (default) = rounded bordered card with no
+   * fill; "fill" = borderless themed panel. */
   cardStyle: "fill" | "border"
   /** Provider round-trips (tool turns) allowed per user message. null = no
    * cap (the loop runs until the model stops or the user aborts). Default: null. */

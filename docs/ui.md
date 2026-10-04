@@ -150,14 +150,14 @@ or cursor overlay in the Solid layer.
 `ChatSidebar` renders the active tab's `ChatSession`:
 
 - **Cards.** Every message is one card (`MessageBlock` returns a single root
-  box for all roles). `chat.cardStyle` selects the look: `"fill"` (default) is a
-  **solid themed panel** filled with the theme `cardBg` token. The shell's box
-  background stays transparent and an inner body paints the fill (a box
-  background would cover the border cells too, squaring the corners), and the
-  border uses full-block `█` edges with quarter-cell notched corners
-  (`▟▙▜▛`) so the panel reads as rounded; `"border"` is
+  box for all roles). `chat.cardStyle` selects the look: `"border"` (default) is
   a rounded bordered card with no fill (keeping the adaptive `terminal` theme
-  background-free). Cards carry no extra inner
+  background-free); `"fill"` is a **solid themed panel** filled with the theme
+  `cardBg` token. The shell's box background stays transparent and an inner body
+  paints the fill (a box background would cover the border cells too, squaring
+  the corners), and the border uses full-block `█` edges with quarter-cell
+  notched corners (`▟▙▜▛`) so the panel reads as rounded. Cards carry no extra
+  inner
   horizontal padding — content sits flush against the panel edge, and the
   message body floats 1 column inside the chat card's border — and are exactly
   `textWidth + 2` columns

@@ -675,8 +675,8 @@ describe("sensus app shell (in-tmux smoke)", () => {
         // 4b. The Chat display rows apply to LIVE bubbles, not just new ones:
         //     render a message card (the palette's "Show help" runs the local
         //     /help slash — no provider needed), then flip chat.cardStyle
-        //     fill (the default) -> border in Settings. The already-rendered
-        //     bubble must repaint WITHOUT a restart (it loses the theme card
+        //     border (the default) -> fill in Settings. The already-rendered
+        //     bubble must repaint WITHOUT a restart (it gains the theme card
         //     fill), and cycling it back must restore it.
         await key("C-p")
         await waitFor(async () => (await cap()).includes("type to filter"), "palette opens for help")
@@ -684,7 +684,7 @@ describe("sensus app shell (in-tmux smoke)", () => {
         await key("Enter")
         await waitFor(async () => (await cap()).includes("Ctrl+O opens /settings"), "help bubble rendered")
         await waitFor(async () => !(await cap()).includes("type to filter"), "palette closed after help", 6000)
-        const fillBg = bgCount(await capE())
+        const borderBg = bgCount(await capE())
         // The Chat category exposes the configurable tool-turn cap and the
         // card-style row; cycling each persists (chat.maxToolTurns / cardStyle).
         await key("C-o")
@@ -698,8 +698,8 @@ describe("sensus app shell (in-tmux smoke)", () => {
         await key("Enter") // off -> 25
         await waitFor(() => readFileSync(configPathInSandbox, "utf8").includes('"maxToolTurns": 25'), "tool turns persisted", 8000)
         await key("Up") // tool turns -> card style
-        await key("Enter") // fill -> border
-        await waitFor(() => readFileSync(configPathInSandbox, "utf8").includes('"cardStyle": "border"'), "card style persisted", 8000)
+        await key("Enter") // border -> fill
+        await waitFor(() => readFileSync(configPathInSandbox, "utf8").includes('"cardStyle": "fill"'), "card style persisted", 8000)
         await key("Escape")
         await waitFor(async () => !(await cap()).includes("settings · Chat"), "settings closed 3", 6000)
         // The commit toasts paint a card fill of their own; let them expire so
@@ -709,9 +709,9 @@ describe("sensus app shell (in-tmux smoke)", () => {
           "card-style toasts cleared",
           6000,
         )
-        await waitFor(async () => bgCount(await capE()) < fillBg, "live bubble rebuilt without the card fill", 8000)
-        const borderBg = bgCount(await capE())
-        // Cycle back to fill: the same live bubble repaints again and the
+        await waitFor(async () => bgCount(await capE()) > borderBg, "live bubble rebuilt with the card fill", 8000)
+        const fillBg = bgCount(await capE())
+        // Cycle back to border: the same live bubble repaints again and the
         // persisted default is left untouched for the restart step below.
         await key("C-o")
         await waitFor(async () => (await cap()).includes("+ add endpoint"), "settings reopens for card style")
@@ -720,8 +720,8 @@ describe("sensus app shell (in-tmux smoke)", () => {
         await key("Enter")
         await waitFor(async () => (await cap()).includes("settings · Chat"), "chat view 2")
         for (let i = 0; i < 3; i++) await key("Down") // thinking -> tool output -> animations -> card style
-        await key("Enter") // border -> fill
-        await waitFor(() => readFileSync(configPathInSandbox, "utf8").includes('"cardStyle": "fill"'), "card style restored", 8000)
+        await key("Enter") // fill -> border
+        await waitFor(() => readFileSync(configPathInSandbox, "utf8").includes('"cardStyle": "border"'), "card style restored", 8000)
         await key("Escape")
         await waitFor(async () => !(await cap()).includes("settings · Chat"), "settings closed 4", 6000)
         await waitFor(
@@ -729,7 +729,7 @@ describe("sensus app shell (in-tmux smoke)", () => {
           "restore toasts cleared",
           6000,
         )
-        await waitFor(async () => bgCount(await capE()) > borderBg, "live bubble rebuilt with the card fill", 8000)
+        await waitFor(async () => bgCount(await capE()) < fillBg, "live bubble rebuilt without the card fill", 8000)
         console.log("[app] chat card style + tool-turn cap apply live and persist")
 
         // 5. /models: picker rows are endpoint-scoped; Enter applies + persists.

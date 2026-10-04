@@ -63,7 +63,7 @@ export function defaultConfig(): SensusConfig {
     context: { scrollbackLines: 100, enabled: true, autoCompact: true, keepTokens: 15_000, bufferTokens: 20_000, contextLimit: 0 },
     toolOutput: { maxLines: DEFAULT_MAX_LINES, maxBytes: DEFAULT_MAX_BYTES },
     compaction: { prune: false, tailTurns: 0 },
-    chat: { thinking: "hide", toolOutput: "collapsed", animations: true, cardStyle: "fill", maxToolTurns: null, busySend: "steer" },
+    chat: { thinking: "hide", toolOutput: "collapsed", animations: true, cardStyle: "border", maxToolTurns: null, busySend: "steer" },
     memory: {
       enabled: true,
       memoryCharLimit: 2200,

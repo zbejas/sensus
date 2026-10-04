@@ -286,8 +286,8 @@ export class ChatSession {
   private readonly sThinkingMode = createSignal<"show" | "hide">("hide")
   private readonly sToolDetails = createSignal<"expanded" | "collapsed">("collapsed")
   private readonly sAnimations = createSignal(true)
-  /** Message card style ("fill" = borderless panel, "border" = bordered card). */
-  private readonly sCardStyle = createSignal<"fill" | "border">("fill")
+  /** Message card style ("border" = bordered card, "fill" = borderless panel). */
+  private readonly sCardStyle = createSignal<"fill" | "border">("border")
   /** Per-message thinking-block expansion overrides (keyed by message id). */
   private readonly sThinkingOpen = createSignal<Map<number, boolean>>(new Map())
   /** Per-card expansion overrides (keyed by tool call id). */

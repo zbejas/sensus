@@ -2622,7 +2622,7 @@ describe("M10 streaming display (thinking, coalescing, collapsible cards)", () =
     const h = makeSession([{ kind: "stop", text: "ok" }])
     expect(h.chat.accessors.thinkingMode()).toBe("hide")
     expect(h.chat.accessors.toolDetails()).toBe("collapsed")
-    expect(h.chat.accessors.cardStyle()).toBe("fill")
+    expect(h.chat.accessors.cardStyle()).toBe("border")
     h.chat.handleInput("/thinking")
     expect(h.chat.accessors.thinkingMode()).toBe("show")
     h.chat.handleInput("/thinking hide")
@@ -2632,20 +2632,20 @@ describe("M10 streaming display (thinking, coalescing, collapsible cards)", () =
     h.chat.handleInput("/details off")
     expect(h.chat.accessors.toolDetails()).toBe("collapsed")
     h.chat.handleInput("/cards")
-    expect(h.chat.accessors.cardStyle()).toBe("border")
-    h.chat.handleInput("/cards fill")
     expect(h.chat.accessors.cardStyle()).toBe("fill")
+    h.chat.handleInput("/cards border")
+    expect(h.chat.accessors.cardStyle()).toBe("border")
     const notes = h.toasts.map((t) => t.message)
     expect(notes.some((n) => n.includes("thinking display → show"))).toBe(true)
     expect(notes.some((n) => n.includes("tool output details → on"))).toBe(true)
-    expect(notes.some((n) => n.includes("card style → border"))).toBe(true)
+    expect(notes.some((n) => n.includes("card style → fill"))).toBe(true)
     // Toggles toast — they never enter the transcript.
     expect(messages(h).some((m) => m.role === "system" && m.content.includes("thinking display →"))).toBe(false)
     // Config chat section seeds a new session's display state.
     h.config.chat.thinking = "show"
     h.config.chat.toolOutput = "expanded"
     h.config.chat.animations = false
-    h.config.chat.cardStyle = "border"
+    h.config.chat.cardStyle = "fill"
     const seeded = new ChatSession({
       getConfig: () => h.config,
       provider: () => h.provider,
@@ -2656,7 +2656,7 @@ describe("M10 streaming display (thinking, coalescing, collapsible cards)", () =
     expect(seeded.accessors.thinkingMode()).toBe("show")
     expect(seeded.accessors.toolDetails()).toBe("expanded")
     expect(seeded.accessors.animations()).toBe(false)
-    expect(seeded.accessors.cardStyle()).toBe("border")
+    expect(seeded.accessors.cardStyle()).toBe("fill")
     // A LIVE session re-seeded from a config change: a Settings save or
     // `/reload` runs applyChatDisplayConfig against every open tab, so an
     // already-rendered bubble rebuilds without a restart (Kaneo #25).
@@ -2674,21 +2674,21 @@ describe("M10 streaming display (thinking, coalescing, collapsible cards)", () =
     h.config.chat.thinking = "hide"
     h.config.chat.toolOutput = "collapsed"
     h.config.chat.animations = true
-    h.config.chat.cardStyle = "fill"
+    h.config.chat.cardStyle = "border"
     h.chat.setThinkingMode("show")
     h.chat.setToolDetails("expanded")
-    h.chat.setCardStyle("border")
+    h.chat.setCardStyle("fill")
     h.chat.setAnimations(false)
     // Internal reload: the router does NOT re-seed, so the overrides stand.
     expect(h.chat.accessors.thinkingMode()).toBe("show")
     expect(h.chat.accessors.toolDetails()).toBe("expanded")
-    expect(h.chat.accessors.cardStyle()).toBe("border")
+    expect(h.chat.accessors.cardStyle()).toBe("fill")
     expect(h.chat.accessors.animations()).toBe(false)
     // User /reload or a settings write: the router re-seeds from config.
     applyChatDisplayConfig(h.chat, h.config.chat)
     expect(h.chat.accessors.thinkingMode()).toBe("hide")
     expect(h.chat.accessors.toolDetails()).toBe("collapsed")
-    expect(h.chat.accessors.cardStyle()).toBe("fill")
+    expect(h.chat.accessors.cardStyle()).toBe("border")
     expect(h.chat.accessors.animations()).toBe(true)
   })
 

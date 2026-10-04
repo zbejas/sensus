@@ -57,8 +57,8 @@ Sensus puts the agent *inside* the terminal you already use:
 
 - The left pane is your shell; type in it as usual. `Shift+Tab` moves focus to the chat.
 - Ask the agent for something and answer the approval cards with `y` / `n` / `a`.
-- The agent works in a **hidden** shell by default. Say "run it in my terminal" (or use
-  the built-in *copilot* agent) and it types into the visible pane instead.
+- The agent works in a **hidden** shell by default. Say "run it in my terminal" and it
+  types into the visible pane instead.
 - `Ctrl+T` opens another tab (another shell and another chat). `Ctrl+W` closes it.
 - Quitting (or `Ctrl+A d`) detaches: the local daemon keeps your shells and any running
   agent turn alive, ready to re-attach on the next boot. `sensus kill` is the kill switch.

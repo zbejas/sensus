@@ -404,6 +404,54 @@ kbd {
   --rd: 0.3s;
 }
 
+/* ---- Page changes: the next page reprints ----
+
+   Cross-document view transitions. Every page opts in, so moving through the
+   site keeps the terminal's own rhythm: the current page clears to the
+   surface, the next prints in, and on /docs the sidebar's block cursor glides
+   from the old entry to the new one (the shared element named in
+   Docs.astro). Progressive enhancement: browsers without the API navigate
+   exactly as before, and reduced motion keeps the change but drops the
+   animation. */
+@view-transition {
+  navigation: auto;
+}
+
+/* The clear fades the old snapshot; the print is the same authored rise as
+   `.rise`, one page surface at a time. Normal blending keeps the overlap
+   reading as a clear instead of brightening it (plus-lighter would add the
+   two snapshots' light rather than dissolve to the page surface). */
+::view-transition-old(root) {
+  animation: page-clear 0.12s linear both;
+  mix-blend-mode: normal;
+}
+
+::view-transition-new(root) {
+  animation: page-print 0.3s var(--ease-out) 0.1s both;
+  mix-blend-mode: normal;
+}
+
+@keyframes page-clear {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes page-print {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
 /* Terminal output prints in order when the transcript enters view. */
 [data-reveal-print] > *:nth-child(1) {
   --rd: 0s;

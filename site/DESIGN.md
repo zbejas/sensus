@@ -92,7 +92,9 @@ chrome, tuned for long-form reading rather than the hero.
 - **Chrome:** the landing nav and the docs bar go solid on docs pages, so scrolled text
   never bleeds through the header.
 - **Active state:** the sidebar marks the current page with the brand's block cursor (a
-  small accent square) plus weight, not a colored border.
+  small accent square) plus weight, not a colored border. On a page change the cursor is
+  the transition's shared element: it glides from the old entry to the new one while the
+  page reprints.
 
 ## Motion
 
@@ -118,6 +120,15 @@ paused offscreen by the same observer). The nav gains elevation over the first 7
 scroll (a scroll-driven animation where supported). Reveals are progressive enhancement:
 `js` is added before first paint, `reveal-fallback` restores everything if the observer
 fails, and without scripting every element is simply visible.
+
+Moving between pages reprints the site like the terminal: a cross-document view
+transition clears the current page to the surface and prints the next one in (the same
+short rise as the hero, one page surface at a time). On `/docs` the sidebar's block
+cursor is the shared element: it glides from the old entry to the new one while the page
+reprints, so the manual keeps its place. The opt-in lives in `src/styles/global.css` and
+the shared element in `src/layouts/Docs.astro`. This is progressive enhancement too:
+browsers without the API (Firefox today) navigate exactly as before, and reduced motion
+keeps the page change without the animation.
 
 Feedback stays small: the copy button presses and pings a success ring, buttons and nav
 links draw their underline, the caret and the vim block cursor blink. All motion is

@@ -87,8 +87,11 @@ const toc = headings.filter((heading) => heading.depth === 2 || heading.depth ==
               <a
                 class:list={["docs-link", { active: currentSlug === null }]}
                 href="/docs/"
-                aria-current={currentSlug === null ? "page" : undefined}>Overview</a
+                aria-current={currentSlug === null ? "page" : undefined}
               >
+                <span class="docs-link-cursor" aria-hidden="true"></span>
+                Overview
+              </a>
             </li>
             {
               entries.map((entry) => (
@@ -98,6 +101,7 @@ const toc = headings.filter((heading) => heading.depth === 2 || heading.depth ==
                     href={`/docs/${entry.slug}/`}
                     aria-current={currentSlug === entry.slug ? "page" : undefined}
                   >
+                    <span class="docs-link-cursor" aria-hidden="true"></span>
                     {entry.title}
                   </a>
                 </li>
@@ -432,8 +436,10 @@ const toc = headings.filter((heading) => heading.depth === 2 || heading.depth ==
     text-decoration: none;
   }
 
-  .docs-link::before {
-    content: "";
+  /* The block cursor marks the current page; it is also the manual's shared
+     element across page changes (the view-transition rules below lift it out
+     of the page snapshots and glide it between entries). */
+  .docs-link-cursor {
     flex: none;
     width: 0.4rem;
     height: 0.4rem;
@@ -454,8 +460,25 @@ const toc = headings.filter((heading) => heading.depth === 2 || heading.depth ==
     font-weight: 600;
   }
 
-  .docs-link.active::before {
+  .docs-link.active .docs-link-cursor {
     opacity: 1;
+    view-transition-name: docs-cursor;
+  }
+
+  :global(::view-transition-group(docs-cursor)) {
+    animation-duration: 0.3s;
+    animation-timing-function: var(--ease-out);
+  }
+
+  /* The cursor arrives solid: the old copy is hidden, the new copy rides the
+     group's geometry from the old entry to the new one. */
+  :global(::view-transition-old(docs-cursor)) {
+    animation: none;
+    opacity: 0;
+  }
+
+  :global(::view-transition-new(docs-cursor)) {
+    animation: none;
   }
 
   .docs-contrib {

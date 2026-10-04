@@ -161,7 +161,7 @@ export class RemoteChat {
   private readonly sThinkingMode = createSignal<"show" | "hide">("hide")
   private readonly sToolDetails = createSignal<"expanded" | "collapsed">("collapsed")
   private readonly sAnimations = createSignal(true)
-  private readonly sCardStyle = createSignal<"fill" | "border">("fill")
+  private readonly sCardStyle = createSignal<"fill" | "border">("border")
   private disposed = false
   /** Monotonic ids for client-local (non-persisted) system bubbles. */
   private localSeq = 0
@@ -204,7 +204,7 @@ export class RemoteChat {
     this.sThinkingMode[1](opts.display?.thinking ?? "hide")
     this.sToolDetails[1](opts.display?.toolOutput ?? "collapsed")
     this.sAnimations[1](opts.display?.animations ?? true)
-    this.sCardStyle[1](opts.display?.cardStyle ?? "fill")
+    this.sCardStyle[1](opts.display?.cardStyle ?? "border")
     this.subscribe()
     if (opts.state !== undefined) this.applyState(opts.state)
 

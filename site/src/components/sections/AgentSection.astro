@@ -1,7 +1,7 @@
 ---
-// The agent section's visual: the real chat-sidebar card language (fill
-// message panels, `❯ you` / `✱ copilot` labels, a pending approval plan card,
-// a `shell_session` tool card) with a homelab session: same illustrative
+// The agent section's visual: the real chat-sidebar card language (default
+// border message panels, `❯ you` / `✱ copilot` labels, a pending approval plan
+// card, a `shell_session` tool card) with a homelab session: same illustrative
 // world as the hero mock.
 ---
 
@@ -28,7 +28,7 @@
           <div class="msg-label"><span class="who">✱ copilot</span><span class="afford">⧉ copy</span></div>
           <div class="msg-body">Two gated changes: the drop-in and a reload. Both run with sudo, in order.</div>
         </div>
-        <div class="panel plan">
+        <div class="panel plan pending">
           <div class="plan-head"><span class="wait" data-pulse>▸</span> plan · 2 approvals</div>
           <div class="plan-line cursor">❯ ✓ [1/2] shell_background&nbsp; sudo tee /etc/ssh/sshd_config.d/hardening.conf</div>
           <div class="plan-detail">    sudo tee /etc/ssh/sshd_config.d/hardening.conf &lt;&lt;'EOF'</div>
@@ -122,29 +122,20 @@
     color: var(--fg-muted);
   }
 
-  /* The app's fill cards are not rounded: a solid surface with a half-cell
-     rectangular notch at each corner (the ▟ ▙ ▜ ▛ quadrant glyphs, see
-     docs/DESIGN.md "Chat sidebar"). Mirror the step, not an arc. */
+  /* The default border cards: rounded like the TUI's `╭ ╮ ╰ ╯` glyphs (one
+     terminal cell, ~5px) with no fill, matching `chat.cardStyle: "border"`.
+     The pending plan card carries the accent border, like the app's
+     cardBorder (docs/DESIGN.md "Chat sidebar"). */
   .panel {
-    --notch-x: 4px;
-    --notch-y: 7px;
     min-width: 0;
     padding: 0.45rem 0.6rem;
-    background: var(--bg-card);
-    clip-path: polygon(
-      var(--notch-x) 0,
-      calc(100% - var(--notch-x)) 0,
-      calc(100% - var(--notch-x)) var(--notch-y),
-      100% var(--notch-y),
-      100% calc(100% - var(--notch-y)),
-      calc(100% - var(--notch-x)) calc(100% - var(--notch-y)),
-      calc(100% - var(--notch-x)) 100%,
-      var(--notch-x) 100%,
-      var(--notch-x) calc(100% - var(--notch-y)),
-      0 calc(100% - var(--notch-y)),
-      0 var(--notch-y),
-      var(--notch-x) var(--notch-y)
-    );
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: transparent;
+  }
+
+  .panel.pending {
+    border-color: var(--accent);
   }
 
   .panel.user {

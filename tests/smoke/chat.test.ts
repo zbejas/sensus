@@ -997,7 +997,7 @@ describe("sensus chat (in-tmux smoke)", () => {
       const home = mkdtempSync(join(tmpdir(), "sensus-m7-smoke-"))
       const sensusHome = join(home, "home")
       // Real provider against the mock SSE server: the key comes from config.
-      // cardStyle "border" is pinned here (not the shipped default) so the
+      // cardStyle "border" is pinned here (it is the shipped default too) so the
       // zero-background guard stays deterministic. The toggle is asserted in step 7b.
       writeSmokeConfig(sensusHome, { layout: "topbar", chat: { cardStyle: "border" }, endpoints: { main: { apiKey: "smoke-key" } } })
       // The built-in scout (readonly) is materialized on boot and supplies the

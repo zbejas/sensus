@@ -200,14 +200,14 @@ describe("config resolution", () => {
 
   test("chat section: cardStyle selects fill or border (default); invalid warns + keeps the default", () => {
     withConfigFile({}, (resolve) => {
-      expect(resolve().chat.cardStyle).toBe("fill")
-    })
-    withConfigFile({ chat: { cardStyle: "border" } }, (resolve) => {
       expect(resolve().chat.cardStyle).toBe("border")
+    })
+    withConfigFile({ chat: { cardStyle: "fill" } }, (resolve) => {
+      expect(resolve().chat.cardStyle).toBe("fill")
     })
     withConfigFile({ chat: { cardStyle: "nope" } }, (resolve) => {
       const c = resolve()
-      expect(c.chat.cardStyle).toBe("fill")
+      expect(c.chat.cardStyle).toBe("border")
       expect(c.warnings.some((w) => w.includes("cardStyle"))).toBe(true)
     })
   })

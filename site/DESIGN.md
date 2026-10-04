@@ -63,11 +63,12 @@ same shape: the pane runs the plain command a user would reach for and shows its
 output, and the chat shows the agent fetching what it needs in a hidden shell (`● done`),
 then a plain summary and the gated fix.
 
-Corners mirror the app's two card species, so the showcase never rounds what the terminal
+Corners mirror the app's card species, so the showcase never rounds what the terminal
 cannot paint. Bordered cards (`╭ ╮ ╰ ╯`, one terminal cell) keep a one-cell arc — 5px, not
-a large smooth curve. Chat fill panels are solid surfaces with a half-cell rectangular
-notch cut from each corner (the `▟ ▙ ▜ ▛` quadrant glyphs): stepped, never rounded. The
-rule covers every TUI surface the site draws: the hero mock, the agent section's chat
+a large smooth curve. The app's opt-in fill panels (solid surfaces with a half-cell
+rectangular notch cut from each corner, the `▟ ▙ ▜ ▛` quadrant glyphs) are not drawn on
+the site: every showcase follows the default border cards. The rule
+covers every TUI surface the site draws: the hero mock, the agent section's chat
 panels, and the terminal section's pane. Site chrome (chips, the install command, the
 lifecycle transcript) keeps the site's own radii. The hero install command wears the
 latest release as a tag on its bottom-left edge: a page-surface pill riding the card

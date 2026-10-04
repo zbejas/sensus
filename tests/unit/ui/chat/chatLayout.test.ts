@@ -247,6 +247,26 @@ describe("ask_user card", () => {
     expect(optionActions.map((a) => a.optionIndex)).toEqual([0, 1, 2, 3, 4, 5, 6])
   })
 
+  test("long options wrap in full — never truncated — and every wrapped row is clickable", () => {
+    const long = "Type the NPM admin password in chat — you add the proxy host + certificate yourself"
+    const laid = layoutMessage(askCard({ options: [long, "short"] }), 40)
+    const rows = laid.body as LayoutRow[]
+    const text = rows.map((l) => l.segs.map((s) => s.text).join("")).join("\n")
+    // The whole option survives (wrapped across rows; only whitespace breaks).
+    expect(text.replace(/\s/g, "")).toContain(long.replace(/\s/g, ""))
+    expect(text).not.toContain("…")
+    // Continuation rows hang-indent under the option text and carry the SAME
+    // action, so clicking any part of a wrapped option picks it.
+    const optRows = rows.filter((r) => (r.actions ?? []).some((a) => a.kind === "option" && a.optionIndex === 0))
+    expect(optRows.length).toBeGreaterThan(1)
+    for (const r of optRows) {
+      expect(r.actions?.[0]).toMatchObject({ kind: "option", optionIndex: 0, label: long })
+    }
+    const cont = optRows[1]!
+    expect(cont.segs[0]?.text).toBe(" ".repeat("  [1] ".length))
+    expect(cont.segs[0]?.text.trim()).toBe("")
+  })
+
   test("the custom entry is appended even when the model supplies no options", () => {
     const text = textOf(askCard({ options: null }))
     expect(text).toContain("[1] ✎ type your custom answer in the chat")

@@ -863,9 +863,12 @@ describe("sensus chat (in-tmux smoke)", () => {
         console.log("[chat] edit_file diff applied on accept")
 
         // 4b. ask_user card (docs/agent.md): the question renders IN FULL with
-        // clickable links, options are numbered/clickable, and a custom-answer
-        // entry is always appended. A digit picks an option and the loop resumes.
-        await typ("ask:Open https://example.com/x to read the docs before choosing|Staging/Production/Canary/Blue-green/Foo")
+        // clickable links, options are numbered/clickable (a long option wraps
+        // in full instead of being truncated), and a custom-answer entry is
+        // always appended. A digit picks an option and the loop resumes.
+        await typ(
+          "ask:Open https://example.com/x to read the docs before choosing|Staging/Production/Canary/Blue-green/A very long option that must wrap in full and still show its ENDMARK",
+        )
         await key("Enter")
         // The question renders IN FULL but WRAPPED (docs/agent.md), so at the
         // default chat width the sentence breaks across rows; assert on the
@@ -879,7 +882,10 @@ describe("sensus chat (in-tmux smoke)", () => {
           15000,
         )
         await waitFor(async () => (await cap()).includes("[1] Staging"), "ask option 1", 5000)
-        await waitFor(async () => (await cap()).includes("[5] Foo"), "ask option 5", 5000)
+        // A long option wraps (hanging-indented) instead of ending in "…":
+        // the head AND the tail both render.
+        await waitFor(async () => (await cap()).includes("[5] A very long option that must wrap"), "ask long option head", 5000)
+        await waitFor(async () => (await cap()).includes("ENDMARK"), "ask long option tail (not truncated)", 5000)
         await waitFor(async () => (await cap()).includes("type your custom answer in the chat"), "ask custom entry", 5000)
         await key("2")
         await waitFor(

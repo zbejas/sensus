@@ -297,9 +297,20 @@ function layoutToolCard(msg: ChatMessage, w: number, opts: LayoutOptions = {}): 
     }
     const options = tool.options ?? []
     options.forEach((opt, i) => {
-      const row = textLine(`  [${i + 1}] ${truncateToWidth(opt, w - 8)}`, { accent: true })
-      ;(row as LayoutRow).actions = [{ label: opt, kind: "option", callId: tool.callId, optionIndex: i }]
-      body.push(row)
+      // An option IS a candidate answer, so it renders in FULL like the
+      // question — wrapped, never truncated (docs/ui.md "Tool cards"). The
+      // hanging indent aligns continuation rows under the option text, and
+      // EVERY wrapped row carries the same click action so any part of the
+      // option is a target.
+      const prefix = `  [${i + 1}] `
+      const rows = wrapPlain(opt, { accent: true }, Math.max(4, w - prefix.length))
+      rows.forEach((r, k) => {
+        const row: LayoutRow = {
+          segs: [plain(k === 0 ? prefix : " ".repeat(prefix.length), { accent: true }), ...r.segs],
+          actions: [{ label: opt, kind: "option", callId: tool.callId, optionIndex: i }],
+        }
+        body.push(row)
+      })
     })
     const custom = textLine(`  [${options.length + 1}] ✎ type your custom answer in the chat`, { dim: true })
     ;(custom as LayoutRow).actions = [

@@ -226,7 +226,9 @@ or cursor overlay in the Solid layer.
   `plan committed — k/N approved` (or `plan aborted`) once resolved.
   An `ask_user` card renders its question in full (wrapped, never truncated) with markdown
   and bare URLs as clickable OSC-8 links (`<a href>` over the `linkifyLines` segments in
-  `agent/markdown.ts`), numbers each option as a clickable row, and always appends a dim
+  `agent/markdown.ts`), numbers each option as a clickable row — the option text wraps in
+  full with a hanging indent, and every wrapped row carries the same click action, so a
+  long candidate answer is never cut off or half-clickable — and always appends a dim
   "✎ type your custom answer in the chat" row (not a real option — picking it leaves the
   reply to the chat input).
 - **Input.** `chat/inputEditor.ts` holds the editor state; `chat/chatKeys.ts` is the key

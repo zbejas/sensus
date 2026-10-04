@@ -49,8 +49,9 @@ approve it. Relative paths resolve against your terminal's working directory.
 ## Asking you
 
 **`ask_user`** puts a question in the chat and pauses until you answer. It shows clickable
-options plus a free-text answer, and it is reserved for genuine forks in the road (which
-approach, which account, whether to accept a breaking change), not for per-step sign-offs.
+options (long ones wrap instead of being cut off) plus a free-text answer, and it is
+reserved for genuine forks in the road (which approach, which account, whether to accept a
+breaking change), not for per-step sign-offs.
 
 ## Memory and your machine
 

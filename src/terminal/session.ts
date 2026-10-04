@@ -23,7 +23,7 @@
  */
 
 import { EmbeddedTerminalRenderable, PasteEvent, type RenderContext } from "@opentui/core"
-import type { KeyAction } from "./keys.ts"
+import { installFunctionKeyEncoding, type KeyAction } from "./keys.ts"
 import { PanePainter } from "./paneBg.ts"
 import { PtySession, type PtySessionOptions, type TerminalStatus } from "./ptySession.ts"
 import { classifyPaneState, type PaneState } from "./paneState.ts"
@@ -131,6 +131,10 @@ export class TerminalSession {
       }
       throw e
     }
+
+    // F1–F12: OpenTUI's physicalKey() has no function-key mapping, so the
+    // native encoder would drop them (keys.ts installFunctionKeyEncoding).
+    installFunctionKeyEncoding(renderable)
 
     // Pipe the rewritten output into the VT. Bytes the child wrote before this
     // listener attached were buffered (bounded) by the PtySession and flush here.

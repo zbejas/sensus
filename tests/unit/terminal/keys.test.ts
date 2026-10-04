@@ -3,6 +3,7 @@ import {
   agentKeyAction,
   encodeKeyAction,
   encodeNamedKey,
+  installFunctionKeyEncoding,
   mapKeyEventToAction,
   pasteAction,
   type KeyAction,
@@ -210,6 +211,36 @@ describe("pasteAction", () => {
     expect(pasteAction("line1\nline2\n")).toEqual({ kind: "literal", text: "line1\nline2\n" })
     expect(bytes(encodeKeyAction(pasteAction("hi")))).toEqual([0x68, 0x69])
     expect(bytes(encodeKeyAction(pasteAction("a\nb")))).toEqual([0x61, 0x0a, 0x62])
+  })
+})
+
+describe("installFunctionKeyEncoding (F1–F12 native patch)", () => {
+  test("F-keys get the native physical name; other keys pass through untouched", () => {
+    const seen: Array<{ name: string; code: string | undefined }> = []
+    const fake = {
+      encodeKey(key: { name: string; code?: string }): Uint8Array {
+        seen.push({ name: key.name, code: key.code })
+        return Uint8Array.from([0xaa])
+      },
+    }
+    installFunctionKeyEncoding(fake)
+
+    // Legacy SS3 F1 parses with code "OP"; F5 with the raw CSI string the
+    // renderable's physicalKey() rejects; a kitty event may carry no code.
+    expect([...fake.encodeKey({ name: "f1", code: "OP" })]).toEqual([0xaa])
+    const f5 = { name: "f5", code: "[15~" }
+    fake.encodeKey(f5)
+    fake.encodeKey({ name: "f12" })
+    fake.encodeKey({ name: "up", code: "OA" })
+
+    expect(seen).toEqual([
+      { name: "f1", code: "F1" },
+      { name: "f5", code: "F5" },
+      { name: "f12", code: "F12" },
+      { name: "up", code: "OA" },
+    ])
+    // The live event is restored after the native call.
+    expect(f5.code).toBe("[15~")
   })
 })
 

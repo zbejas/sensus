@@ -23,7 +23,7 @@ sensus server). The UI that mounts the renderable is [`ui.md`](ui.md); the color
 | `src/terminal/scan.ts` | `StreamScanner` + `TextRing`: incremental OSC/CSI scanner over raw bytes for the plain-text ring, title, OSC 7 cwd, alt-screen flag, application-cursor (DECCKM) and OSC 133 marks |
 | `src/terminal/sgr.ts` | `SgrColorRewriter` + `buildPanePalette`: rewrites indexed output SGR colors to truecolor from the detected/override palette and re-applies the theme default **fg** on resets before the bytes reach the VT (the default **bg** is painted by `paneBg.ts`; pure, incremental, never throws) |
 | `src/terminal/paneBg.ts` | `PanePainter` + `paintDefaultBackground`: in the renderable's `renderAfter` hook, remaps frozen theme/palette colors to the current ones and repaints the VT's opaque-black default-background cells, so existing content follows the theme across resize and theme switches (pure) |
-| `src/terminal/keys.ts` | `KeyAction` vocabulary, opentui key event → action mapping, and action → raw PTY bytes (`mapKeyEventToAction`, `agentKeyAction`, `encodeKeyAction`, `encodeNamedKey`) |
+| `src/terminal/keys.ts` | `KeyAction` vocabulary, opentui key event → action mapping, action → raw PTY bytes (`mapKeyEventToAction`, `agentKeyAction`, `encodeKeyAction`, `encodeNamedKey`), and the embedded renderable's F1–F12 patch (`installFunctionKeyEncoding`) |
 | `src/terminal/responseGuard.ts` | `ResponseLeakGuard` + `looksLikeTerminalResponse`: drops terminal-query reply tails the stdin parser split into key events, so they are never typed into the pane |
 | `src/terminal/paneState.ts` | `classifyPaneState` + `PaneState`: structured state probe (`prompt`/`continuation`/`running`/`password-prompt`/`fullscreen`/`unknown`) over the LIVE screen grid, plus `paneStateRefusal`/`formatPaneEvidence` (pure, never throws) |
 | `src/terminal/delivery.ts` | `verifyPaneDelivery`: bounded echo/prompt-anchored check that a `shell_session` write actually landed (`delivered` vs `unverified`; pure, never throws) |
@@ -197,6 +197,16 @@ place, so the pane always boots.
   Shift+Enter sequence inserts a chat newline instead of sending, and a Ctrl+letter / Tab /
   Enter regression pass reaches the shell (readline end-of-line, `^I` from `cat -A`, and a
   submitted command) with no dropped keys.
+- **Function keys are patched in** (`keys.ts` `installFunctionKeyEncoding`, applied by both
+  clients right after the renderable is constructed): OpenTUI's
+  `EmbeddedTerminalRenderable` derives the native encoder's physical key through an internal
+  `physicalKey()` that has **no F1–F12 mapping** — the parsed event carries either an SS3
+  pair (`OP` for F1) or a raw CSI string (`[15~` for F5), both of which fail its lookup, so
+  the native encoder received an empty key and every function key was silently dropped
+  (nvtop's F2/F12, htop's F-keys dead). The patch sets the event's `code` to the physical
+  name (`F1`…`F12`) for the native call and restores it after; the native encoder then emits
+  the right sequence and still honors modifiers and the inner app's kitty keyboard mode.
+  Remove the patch once OpenTUI maps function keys itself.
 - **Terminal-reply leak guard** (`responseGuard.ts`): OpenTUI's stdin parser flushes an
   incomplete escape sequence after a 20 ms timeout. When a reply to sensus's OSC 4/10/11
   (palette/theme) or CSI capability probes is split across reads — typical over SSH, where the
@@ -514,6 +524,9 @@ The sidebar and theme tokens are unaffected: they still derive from OSC 4/10/11 
   so aliases/completions/env are unchanged.
 - **Alt on named keys is an ESC prefix**, not a CSI parameter; arrows/nav/F-keys use the CSI
   modifier parameter (`encodeNamedKey` in `keys.ts`).
+- **OpenTUI's embedded renderable drops F1–F12** unless `installFunctionKeyEncoding` patches
+  the instance (see "Input & focus") — its `physicalKey()` has no function-key mapping. The
+  patch is required until OpenTUI learns them.
 - **The embedded VT's scrollback has no read API** — agent deep-capture reads our bounded
   plain-text ring, not the VT's scrollback.
 - **The embedded VT ignores the host palette, freezes colors, defaults to black, and its

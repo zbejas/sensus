@@ -380,3 +380,65 @@ export function encodeKeyAction(action: KeyAction, opts: EncodeOptions = {}): Ui
   }
   return concat(parts)
 }
+
+// ---- Embedded-renderable F-key patch ----------------------------------------
+
+/**
+ * Physical names OpenTUI's native embedded-terminal encoder expects for the
+ * function keys. The renderable's own `physicalKey()` has no F1–F12 mapping:
+ * the parsed event carries either an SS3 letter pair (`OP` for F1) or a raw CSI
+ * string (`[15~` for F5), both of which fail its lookup, so it hands the native
+ * encoder an EMPTY key and every function key is silently dropped (F2/F12 dead
+ * in nvtop/htop). Supplying the physical name makes the native encoder emit the
+ * right sequence, honoring modifiers and the inner app's kitty keyboard mode.
+ */
+const FUNCTION_KEY_PHYSICAL_NAMES: Record<string, string> = {
+  f1: "F1",
+  f2: "F2",
+  f3: "F3",
+  f4: "F4",
+  f5: "F5",
+  f6: "F6",
+  f7: "F7",
+  f8: "F8",
+  f9: "F9",
+  f10: "F10",
+  f11: "F11",
+  f12: "F12",
+}
+
+/**
+ * Patch an embedded-terminal renderable's key encoding so F1–F12 reach the
+ * native encoder (see `FUNCTION_KEY_PHYSICAL_NAMES`). The event's `code` is set
+ * to the physical name for the duration of the native call and restored after;
+ * every other key passes through untouched. Structural seam (no `@opentui/core`
+ * import), so this stays pure and unit-testable; a renderable without
+ * `encodeKey` — a test fake — is left alone.
+ */
+export function installFunctionKeyEncoding<T extends { name: string; code?: string }>(
+  renderable: { encodeKey?: (key: T) => Uint8Array },
+): void {
+  const encode = renderable.encodeKey
+  if (typeof encode !== "function") return
+  const bound = encode.bind(renderable)
+  renderable.encodeKey = (key: T): Uint8Array => {
+    const physical = FUNCTION_KEY_PHYSICAL_NAMES[key.name]
+    if (physical === undefined) return bound(key)
+    const previous = key.code
+    try {
+      key.code = physical
+    } catch {
+      // Frozen/sealed event: fall back to the unpatched encoding.
+      return bound(key)
+    }
+    try {
+      return bound(key)
+    } finally {
+      try {
+        key.code = previous
+      } catch {
+        // Frozen event: the physical name stays; encoding already happened.
+      }
+    }
+  }
+}

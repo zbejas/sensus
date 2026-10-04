@@ -29,7 +29,7 @@
  */
 
 import { EmbeddedTerminalRenderable, PasteEvent, type RenderContext } from "@opentui/core"
-import { encodeKeyAction, type KeyAction } from "../terminal/keys.ts"
+import { encodeKeyAction, installFunctionKeyEncoding, type KeyAction } from "../terminal/keys.ts"
 import { PanePainter } from "../terminal/paneBg.ts"
 import { classifyPaneState, type PaneState } from "../terminal/paneState.ts"
 import type { TerminalStatus } from "../terminal/ptySession.ts"
@@ -171,6 +171,10 @@ export class RemoteTerminalSession {
         },
       })
     }
+
+    // F1–F12: OpenTUI's physicalKey() has no function-key mapping, so the
+    // native encoder would drop them (keys.ts installFunctionKeyEncoding).
+    installFunctionKeyEncoding(renderable)
 
     const session = new RemoteTerminalSession(opts, renderable, painter)
     // The real renderable's inputs go out over the wire. Attached after

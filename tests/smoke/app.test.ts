@@ -105,6 +105,24 @@ describe("sensus app shell (in-tmux smoke)", () => {
         await waitFor(async () => (await capture()).includes("SMOKETEST-42"))
         console.log("[app] key roundtrip ok")
 
+        // 2b. Function keys reach the pane. OpenTUI's physicalKey() has no
+        //     F1–F12 mapping, so the embedded renderable used to hand the
+        //     native encoder an empty key and silently drop every function key
+        //     (nvtop's F2/F12 dead). `cat -v` prints the received bytes.
+        await typeText("cat -v; echo CAT-DONE")
+        await pressKey("Enter")
+        await pressKey("F1")
+        await pressKey("F5")
+        await pressKey("F12")
+        await pressKey("Enter")
+        await waitFor(async () => {
+          const out = await capture()
+          return out.includes("^[OP") && out.includes("^[[15~") && out.includes("^[[24~")
+        }, 15000, 100, "F1/F5/F12 in the pane")
+        await pressKey("C-d")
+        await waitFor(async () => (await capture()).includes("CAT-DONE"), 15000, 100, "cat -v finished")
+        console.log("[app] F1/F5/F12 reach the pane")
+
         // 3. Native scrollback: wheel up reveals lines above the live viewport.
         //    Paced ~20ms — opentui coalesces rapid same-coordinate wheel events.
         //    The embedded VT has no scroll indicator, so the older line itself

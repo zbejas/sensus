@@ -50,7 +50,10 @@ streaming display in [`agent-prompt.md`](agent-prompt.md).
    `write_file` cards show the diff rows while pending, so the user reviews before
    approving.
 6. **Esc** aborts the loop and any running hidden command through one AbortSignal; pending
-   approval / `ask_user` waits resolve as aborted.
+   approval / `ask_user` waits resolve as aborted. Every abort names its reason
+   (`user`, `rewind`, `plan-cancel`, `shell-exit`, `approval-timeout`,
+   `prompt-orphaned`, `shutdown`) on the settled turn's structured `turn completed`
+   record and its `turn-complete` event ([`logging.md`](logging.md)).
 
 ### Busy sends (steer / queue)
 
@@ -182,7 +185,10 @@ notification can never break the render.
 
 - **Tool execution is sequential**, never parallel — cards and approvals depend on order.
 - **Esc is one `AbortSignal`** for the fetch, the hidden command's process group, and
-  pending card waits. A partial answer is kept and marked aborted.
+  pending card waits. A partial answer is kept and marked aborted. The abort reason is
+  threaded from the caller (Esc/`chat.abort` = `user`, rewind, plan cancel, shell exit,
+  approval timeout, shutdown) and lands on the turn's structured record + seam event; the
+  frozen v1 event schema still drops it.
 - **The doom-loop guard blocks the 4th consecutive identical call** (same name, identical
   JSON args), not the 3rd; the counter resets on the next user message.
 - **A background job is surfaced, not hidden**: the status chip + the context line + the

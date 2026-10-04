@@ -81,6 +81,11 @@ sensus daemon logs --level warn --component 'daemon*'
 `--level` filters by severity, `--component` matches a component name (a trailing `*`
 matches a prefix), and `--json` prints raw records for `jq`.
 
+The service log records what happened, not just when the service started and stopped:
+sessions opening and closing, each tool run with its status, completed turns and why one
+was aborted, errors, and why the service last stopped or restarted. `--level warn`
+narrows to problems.
+
 The local event and trigger logs are follow-able too:
 
 ```sh

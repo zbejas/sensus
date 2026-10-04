@@ -310,10 +310,15 @@ The daemon owns the installation identity and the durable event log (D13;
 (`configureLogger`) to append NDJSON records to `<runtimeDir>/daemon-log.jsonl`
 (`daemonLogJsonlPath`), distinct from the raw `daemon.log` stdio banner. Records
 carry `component`, the `instance.json` id as `instanceId`, and a `corrId` for REST
-requests; the boot bearer token is redacted by literal value. `SENSUS_LOG_LEVEL`
-sets the minimum level and `SENSUS_LOG_STRICT=1` turns an allow-listed set of
-absorbed failures into rethrows. Read it with `sensus daemon logs`; the full
-contract is in [`logging.md`](logging.md).
+requests; the boot bearer token is redacted by literal value. The log records
+activity — sessions, tool executions, settled turns with their abort reason, errors —
+and the daemon's own `previous` restart reason (`clean`/`stale-pid`/`stale-socket`/
+`unresponsive`, classified by the foreground CLI from the pidfile/socket/health it
+found) plus the `reason` on `daemon stopping` (`signal:SIGINT|SIGTERM|SIGHUP`,
+`idle`, `crash`, `requested`). `SENSUS_LOG_LEVEL` sets the minimum level and
+`SENSUS_LOG_STRICT=1` turns an allow-listed set of absorbed failures into rethrows.
+Read it with `sensus daemon logs`; the full contract is in
+[`logging.md`](logging.md).
 
 **Condition triggers (P6).** The daemon also decorates that same event sink with
 a `TriggerEngine` ([`triggers.md`](triggers.md)): the `triggers` config rules are
@@ -648,9 +653,14 @@ runs for all of them.
 could drop every pane socket). An escaped rejection is logged at `error` (the
 reason stringified defensively) and the daemon **stays alive** — a detached
 turn/shell has no owner to retry it. An uncaught exception is unrecoverable: it
-is logged with the stack, the structured log is flushed (`flushLoggerSync`), and
-the normal `stop()` teardown runs (clients closed, shells/PTYs killed, listeners
-removed, socket/pidfile unlinked) before exiting `1`.
+is logged with the stack, then the normal `stop()` teardown runs with stop reason
+`crash` (a `daemon stopping` record), and the structured log is flushed
+(`flushLoggerSync`) before exiting `1` (clients closed, shells/PTYs killed,
+listeners removed, socket/pidfile unlinked). The hidden-shell drain path is
+contained too: a straggler that holds a pipe is cancelled through its reader —
+never `stream.cancel()` on a locked stream, the rejection that once killed the
+daemon — and a lost drain race is recorded (`hidden command force-drained`,
+warn). `stop()` is idempotent, so an idle exit emits exactly one stopping record.
 
 **Boot catalog warm.** The daemon warms the models.dev index at boot
 (best-effort, never blocking the listeners), matching the in-process TUI and

@@ -84,7 +84,7 @@ misbehaving sink can never break a tool call or a reload.
 |---|---|---|
 | `session-start` | `ChatHost.createTabChat` (fresh or resumed), once per tab | `session`, `agent`, `approval`, `shell`, `model`, `resumed` |
 | `session-end` | `ChatHost.endTabChat` — the daemon releases a chat (`daemon stop`); a chat survives client detach (D4) | `session`, `reason` |
-| `turn-complete` | An agent turn settled (status returned to idle) | `session`, `durationMs`, `outcome` (`ok`/`aborted`/`error`), `model` |
+| `turn-complete` | An agent turn settled (status returned to idle) | `session`, `durationMs`, `outcome` (`ok`/`aborted`/`error`), `model`, `reason?` (why an aborted turn stopped: `user`/`rewind`/`plan-cancel`/`shell-exit`/`approval-timeout`/`prompt-orphaned`/`shutdown`) |
 | `command-approved` | A call is permitted to run | `tool`, `source` (`auto`/`user`/`policy`), `approval`, `agent`, `cwd`, `shell` |
 | `command-denied` | A call is refused: a terminal `permission`/guard/policy `deny`, a user reject, or an abort | `tool`, `source` (`permission`/`policy`/`guard`/`user`/`aborted`), `reason?` |
 | `command-ran` | A call executed (tool execution, or a file write) | `tool`, `command` (the call's primary target, capped at `EVENT_TARGET_MAX`), `ok`, `exitCode?`, `approval`, `agent`, `cwd`, `shell` |
@@ -133,7 +133,9 @@ noop default ([`config.md`](config.md) "extensions").
 The `JsonlEventSink` writes the frozen, versioned projection the monitoring seam reads:
 one `EventV1` JSON object per line with `{ v: 1, ts, instanceId, session, type, … }`.
 `toEventV1(event, instanceId)` is the pure seam→v1 mapping (the eight types plus the type
-fields); `command-approved`/`command-denied` have no v1 counterpart and are dropped there.
+fields); `command-approved`/`command-denied` have no v1 counterpart and are dropped there,
+and the optional `turn-complete.reason` is dropped too (the raw seam event / UDS sink and
+the structured daemon log carry it; the v1 schema stays frozen).
 The schema, its emission points, the file cap/rotation, and the no-egress guarantee are in
 [`events.md`](events.md).
 

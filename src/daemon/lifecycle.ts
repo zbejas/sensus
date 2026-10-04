@@ -135,8 +135,9 @@ export interface DaemonLifecycleDeps {
   /** Deny a chat's pending approval/plan/sudo (no abort). Returns true when a
    * prompt was actually resolved. */
   denyPending: (chatId: string) => boolean
-  /** Abort a chat's running turn (resolves any leftover wait as aborted). */
-  abortTurn: (chatId: string) => void
+  /** Abort a chat's running turn (resolves any leftover wait as aborted).
+   * `reason` names the cause on the turn's structured record (docs/logging.md). */
+  abortTurn: (chatId: string, reason?: string) => void
   /** Clean shutdown: kill shells/chats, close listeners, remove socket/pid. */
   shutdown: () => void
 }
@@ -324,7 +325,7 @@ export class DaemonLifecycle {
         log.error("denyPending failed on approval timeout", { err, chatId })
       }
       try {
-        this.deps.abortTurn(chatId)
+        this.deps.abortTurn(chatId, "approval-timeout")
       } catch (err) {
         // contained
         log.error("abortTurn failed on approval timeout", { err, chatId })
@@ -346,7 +347,7 @@ export class DaemonLifecycle {
     }
     if (denied) return
     try {
-      this.deps.abortTurn(chatId)
+      this.deps.abortTurn(chatId, "prompt-orphaned")
     } catch (err) {
       // contained
       log.error("abortTurn failed on orphaned prompt", { err, chatId })

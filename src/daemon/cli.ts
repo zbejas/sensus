@@ -263,31 +263,68 @@ async function daemonTcp(dir: string): Promise<{ host: string; port: number } | 
 
 // ---- commands ---------------------------------------------------------------
 
+/**
+ * Why a previous daemon's state is not a healthy running daemon (recorded as
+ * the `previous` restart reason on `daemon started`; docs/logging.md).
+ * `"running"` means a live pid answered `/v1/health` — serve must refuse to
+ * steal it.
+ */
+export type PriorDaemonState = "clean" | "stale-pid" | "stale-socket" | "unresponsive" | "running"
+
+/**
+ * Classify the prior daemon state from the boot checks (docs/logging.md):
+ * a dead pidfile is `"stale-pid"`, a live pid that fails health is
+ * `"unresponsive"`, a leftover socket with no pidfile is `"stale-socket"`,
+ * nothing at all is `"clean"`. Pure so the classification is unit-testable.
+ */
+export function classifyPriorDaemon(facts: {
+  pidPresent: boolean
+  pidAlive: boolean
+  healthy: boolean
+  socketPresent: boolean
+}): PriorDaemonState {
+  if (facts.pidPresent && facts.pidAlive) return facts.healthy ? "running" : "unresponsive"
+  if (facts.pidPresent) return "stale-pid"
+  return facts.socketPresent ? "stale-socket" : "clean"
+}
+
 /** `sensus daemon serve` — foreground listeners that stay alive until a signal. */
 async function serveForeground(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<DaemonRunResult> {
   const dir = sensusRuntimeDirFrom(env)
   const pidPath = daemonPidPath(dir)
+  const socketPath = daemonSocketPath(dir)
 
   // Refuse to steal a live daemon's socket: startDaemon unlinks a stale socket,
-  // so a second `serve` on a healthy daemon would clobber it.
+  // so a second `serve` on a healthy daemon would clobber it. The same checks
+  // classify WHY the previous daemon is gone for the `daemon started` record.
   const existing = readPidFile(pidPath)
-  if (existing !== null && isAlive(existing)) {
+  const existingAlive = existing !== null && isAlive(existing)
+  let healthy = false
+  if (existingAlive) {
     const probe = await health(dir)
-    if (probe !== null && probe.status === 200) {
+    healthy = probe !== null && probe.status === 200
+    if (healthy) {
       io.err(`sensus daemon: already running (pid ${existing}) — use \`sensus daemon stop\``)
       return 1
     }
   }
+  const previous = classifyPriorDaemon({
+    pidPresent: existing !== null,
+    pidAlive: existingAlive,
+    healthy,
+    socketPresent: existsSync(socketPath),
+  })
 
   // Shutdown is reachable from a signal AND from the idle policy (D9): the
-  // lifetime controller calls `onIdleExit` when the grace window expires.
+  // lifetime controller calls `onIdleExit` when the grace window expires. The
+  // reason rides `stop()`'s `daemon stopping` record (docs/logging.md).
   let stopping = false
-  let stopListeners: (() => void) | null = null
-  const shutdown = (code: number): void => {
+  let stopListeners: ((reason?: string) => void) | null = null
+  const shutdown = (code: number, reason: string): void => {
     if (stopping) return
     stopping = true
     try {
-      stopListeners?.()
+      stopListeners?.(reason)
     } catch {
       // idempotent
     }
@@ -298,9 +335,9 @@ async function serveForeground(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<Da
     }
     process.exit(code)
   }
-  process.on("SIGINT", () => shutdown(0))
-  process.on("SIGTERM", () => shutdown(0))
-  process.on("SIGHUP", () => shutdown(0))
+  process.on("SIGINT", () => shutdown(0, "signal:SIGINT"))
+  process.on("SIGTERM", () => shutdown(0, "signal:SIGTERM"))
+  process.on("SIGHUP", () => shutdown(0, "signal:SIGHUP"))
 
   // Crash containment. `serve` runs headless before src/index.tsx registers its
   // own process handlers, so without these Bun's fatal default kills the daemon
@@ -323,13 +360,19 @@ async function serveForeground(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<Da
     } catch {
       // best-effort
     }
-    shutdown(1)
+    // `crash` names the stop; stop() emits `daemon stopping` and then flushes
+    // the structured log again, so the crash + stopping records both land.
+    shutdown(1, "crash")
   })
 
   const res = await startDaemon({
     runtimeDir: dir,
     home: sensusHomeFrom(env),
-    onIdleExit: () => shutdown(0),
+    // The idle policy's stop reason is `"idle"` (serve.ts names it itself);
+    // this callback only removes the pidfile and exits.
+    onIdleExit: () => shutdown(0, "idle"),
+    // Why the previous daemon is gone, from the boot checks above.
+    previous,
     // SENSUS_MODELS_DEV_WARM=0 opts out (tests/reproducible boots).
     warmCatalog: env["SENSUS_MODELS_DEV_WARM"] !== "0",
   })

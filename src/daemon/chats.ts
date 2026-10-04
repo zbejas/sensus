@@ -393,7 +393,7 @@ export class ChatRegistry {
       if (record.shellId !== shellId) continue
       this.resolvePendingSudo(record, null)
       try {
-        record.chat.abort()
+        record.chat.abort("shell-exit")
       } catch (err) {
         // best-effort: a refused abort still lets the record drop
         log.warn("abort on shell close failed", { err, chatId: record.id, shellId })
@@ -496,7 +496,7 @@ export class ChatRegistry {
     if (record === undefined) return { ok: false, error: "chat_not_found" }
     this.resolvePendingSudo(record, null)
     try {
-      record.chat.abort()
+      record.chat.abort("user")
     } catch (e) {
       // best-effort
       log.debug("chat abort failed", { err: e, chatId })
@@ -802,22 +802,32 @@ export class ChatRegistry {
     return denied
   }
 
-  /** Abort a chat's running turn (the D10 timeout's second half). */
-  abortTurn(chatId: string): void {
+  /** Abort a chat's running turn (the D10 timeout's second half). `reason`
+   * names the cause on the turn's `turn completed` record (docs/logging.md). */
+  abortTurn(chatId: string, reason = "approval-timeout"): void {
     const record = this.records.get(chatId)
     if (record === undefined) return
     this.resolvePendingSudo(record, null)
     try {
-      record.chat.abort()
+      record.chat.abort(reason)
     } catch {
       // best-effort
     }
   }
 
-  /** Release every chat (daemon shutdown). */
+  /** Release every chat (daemon shutdown). Any in-flight turn is aborted first
+   * so its settle records the shutdown before the process exits. */
   closeAll(): void {
     this.closed = true
-    for (const record of [...this.records.values()]) this.drop(record)
+    for (const record of [...this.records.values()]) {
+      try {
+        record.chat.abort("shutdown")
+      } catch (err) {
+        // best-effort: a refused abort still lets the record drop
+        log.debug("abort on closeAll failed", { err, chatId: record.id })
+      }
+      this.drop(record)
+    }
     for (const resolve of this.sudoResolvers.values()) resolve(null)
     this.sudoResolvers.clear()
     // The daemon owns the MCP stdio children too: stop them so `daemon stop`

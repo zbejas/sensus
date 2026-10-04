@@ -15,7 +15,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { defaultConfig, listSessionFiles, type SensusConfig } from "../../../src/engine/index.ts"
-import { startDaemon, type StartDaemonResult } from "../../../src/daemon/index.ts"
+import { daemonLogJsonlPath, startDaemon, type StartDaemonResult } from "../../../src/daemon/index.ts"
+import { flushLoggerSync, parseLogLine } from "../../../src/core/log.ts"
 import { startMockOpenai, startMockModelsDev, type MockOpenaiServer } from "../../mocks/mockOpenai.ts"
 
 const TOKEN = "daemon-chat-test-token"
@@ -326,6 +327,17 @@ describe("daemon chat: full gated turn over WS", () => {
       expect(aborted).toBeDefined()
       // The aborted turn never produced the mock's (delayed) reply text.
       expect(JSON.stringify(messages)).not.toContain("PLAINREPLY-OK")
+      // The structured daemon log names WHY the turn aborted (docs/logging.md):
+      // `chat.abort` is a user abort, and the session-start is recorded too.
+      flushLoggerSync()
+      const logRecs = readFileSync(daemonLogJsonlPath(daemon.runtime), "utf8")
+        .split("\n")
+        .map((line) => parseLogLine(line))
+        .filter((r) => r !== null)
+      expect(logRecs.some((r) => r.msg === "session started" && r.attributes?.["session"] === "daemon-chat-test")).toBe(true)
+      const turnRec = logRecs.find((r) => r.msg === "turn completed" && r.attributes?.["outcome"] === "aborted")
+      expect(turnRec?.component).toBe("agent.chat")
+      expect(turnRec?.attributes?.["reason"]).toBe("user")
     } finally {
       client.close()
       daemon.cleanup()

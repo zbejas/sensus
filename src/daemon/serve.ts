@@ -107,6 +107,13 @@ export interface StartDaemonOptions {
   /** Fired when the idle policy shuts the daemon down (D9). The foreground CLI
    * uses it to remove the pidfile and exit 0. */
   onIdleExit?: () => void
+  /**
+   * Why the PREVIOUS daemon is gone (docs/logging.md): the foreground CLI
+   * classifies the pidfile/socket it found at boot (`"clean"`, `"stale-pid"`,
+   * `"stale-socket"`, `"unresponsive"`). Defaults to `"clean"` (no prior
+   * state suggested otherwise) and is recorded on `daemon started`.
+   */
+  previous?: string
 }
 
 export type StartDaemonResult =
@@ -117,7 +124,9 @@ export type StartDaemonResult =
       token: string
       /** The live shell registry (tests/lifecycle; D4/D11/D12). */
       registry: ShellRegistry
-      stop: () => void
+      /** Tear everything down. `reason` is recorded on `daemon stopping`
+       * (docs/logging.md); idempotent — only the first call's reason lands. */
+      stop: (reason?: string) => void
     }
   | { ok: false; error: string }
 
@@ -378,7 +387,7 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
   const approvalTimeoutMs = opts.approvalTimeoutMs ?? resolveApprovalTimeoutMs(process.env)
   const persistent = opts.persistent ?? resolvePersistent(process.env, config().daemonPersistent)
   const reattachMaxAgeMs = opts.reattachMaxAgeMs ?? resolveReattachMaxAgeMs(process.env)
-  let stopRef: () => void = () => {}
+  let stopRef: (reason?: string) => void = () => {}
   const lifecycle = new DaemonLifecycle({
     graceMs,
     approvalTimeoutMs,
@@ -388,7 +397,7 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
     anyTurnRunning: () => chats.anyTurnRunning(),
     pendingPromptChats: () => chats.pendingPromptChats(),
     denyPending: (chatId) => chats.denyPending(chatId),
-    abortTurn: (chatId) => chats.abortTurn(chatId),
+    abortTurn: (chatId, reason) => chats.abortTurn(chatId, reason),
     // The daemon owns the visible panes (D1, locked #6): while a live shell
     // exists it must not idle-exit and reap it, so a killed/restarted client can
     // re-attach and a running command survives (docs/daemon-api.md "Lifecycle").
@@ -408,7 +417,9 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
       }
     },
     shutdown: () => {
-      stopRef()
+      // The grace window expired (D9): name the stop so `daemon stopping`
+      // explains itself (docs/logging.md).
+      stopRef("idle")
       opts.onIdleExit?.()
     },
   })
@@ -516,8 +527,14 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
     log.child({ component: "daemon.serve" }).warn("socket chmod 0600 failed", { err: e, socket: socketPath, mode: "0600" })
   }
 
-  const stop = () => {
-    log.child({ component: "daemon.serve" }).info("daemon stopping", { socket: socketPath })
+  let stopped = false
+  const stop = (reason = "requested") => {
+    // Idempotent: the idle path calls stop once from the lifecycle callback and
+    // once through the CLI's onIdleExit, and a second call must not emit a
+    // second `daemon stopping` record or re-run teardown.
+    if (stopped) return
+    stopped = true
+    log.child({ component: "daemon.serve" }).info("daemon stopping", { socket: socketPath, reason })
     // Cancel the lifetime timers and the lifecycle event subscription first so
     // no grace/approval callback fires mid-teardown.
     try {
@@ -598,6 +615,9 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
     host: tcpServer.hostname ?? host,
     port: tcpServer.port ?? 0,
     persistent,
+    // Why the previous daemon is gone (`"clean"` when nothing suggested
+    // otherwise) — the restart-reason field the bug report asked for.
+    previous: opts.previous ?? "clean",
   })
 
   // Warm the models.dev catalog at boot (docs/config.md "Model catalog cache":

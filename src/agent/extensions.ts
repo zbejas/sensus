@@ -156,6 +156,11 @@ export interface TurnCompleteEvent {
   durationMs: number
   outcome: "ok" | "aborted" | "error"
   model: string
+  /** Why an aborted turn stopped (`"user"`, `"rewind"`, `"shell-exit"`,
+   * `"approval-timeout"`, `"shutdown"`, …). Optional: absent when the turn was
+   * not aborted. Carried by the raw seam event (UDS sink) and the structured
+   * daemon log; the frozen v1 schema deliberately drops it (docs/events.md). */
+  reason?: string
 }
 
 /** A write/edit tool committed (or failed to commit) a file. */
@@ -515,6 +520,9 @@ export function toEventV1(event: SensusEvent, instanceId: string): EventV1 | nul
     case "session-end":
       return { ...base, type: "session.ended", reason: capField(event.reason) }
     case "turn-complete":
+      // The v1 `turn.completed` schema is frozen at outcome/durationMs/model:
+      // the optional abort `reason` rides the raw seam event (UDS sink) and the
+      // structured daemon log only, never the durable v1 log (docs/events.md).
       return {
         ...base,
         type: "turn.completed",

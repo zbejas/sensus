@@ -12,7 +12,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Elysia } from "elysia"
 import { configureLogger, flushLoggerSync, readLogFile, type LogRecord } from "../../../src/core/log.ts"
-import { daemonLogJsonlPath, logStrictEnabled, settingsRoutes, startDaemon, type StartDaemonResult } from "../../../src/daemon/index.ts"
+import { daemonLogJsonlPath, logStrictEnabled, settingsRoutes, startDaemon, type StartDaemonOptions, type StartDaemonResult } from "../../../src/daemon/index.ts"
 
 const TOKEN = "feedfacefeedfacefeedfacefeedface"
 
@@ -20,6 +20,7 @@ const TOKEN = "feedfacefeedfacefeedfacefeedface"
 async function withLoggedDaemon(
   fn: (info: { dir: string; logPath: string; result: Extract<StartDaemonResult, { ok: true }> }) => Promise<void>,
   env: Record<string, string> = { SENSUS_LOG_LEVEL: "debug" },
+  startOpts: Partial<StartDaemonOptions> = {},
 ): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), "sensus-daemon-log-"))
   const prev = { level: process.env["SENSUS_LOG_LEVEL"], strict: process.env["SENSUS_LOG_STRICT"] }
@@ -27,7 +28,7 @@ async function withLoggedDaemon(
   if (!("SENSUS_LOG_STRICT" in env)) delete process.env["SENSUS_LOG_STRICT"]
   let result: StartDaemonResult | undefined
   try {
-    result = await startDaemon({ runtimeDir: dir, token: TOKEN, home: join(dir, "home"), config: () => ({}) })
+    result = await startDaemon({ runtimeDir: dir, token: TOKEN, home: join(dir, "home"), config: () => ({}), ...startOpts })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     flushLoggerSync()
@@ -64,7 +65,31 @@ describe("daemon structured logging: boot + records", () => {
       expect(typeof started?.instanceId).toBe("string")
       expect(started?.attributes?.["socket"]).toBeString()
       expect(started?.attributes?.["persistent"]).toBe(false)
+      // No prior daemon state suggested otherwise: the restart reason is clean.
+      expect(started?.attributes?.["previous"]).toBe("clean")
     })
+  })
+
+  test("a boot with a stale prior daemon records the restart reason; stop records why it stopped", async () => {
+    await withLoggedDaemon(
+      async ({ logPath, result }) => {
+        // The CLI passes the classified prior state; the boot record names it.
+        result.stop("signal:SIGTERM")
+        flushLoggerSync()
+        const recs = records(logPath)
+        const started = recs.find((r) => r.msg === "daemon started")
+        expect(started?.attributes?.["previous"]).toBe("stale-pid")
+        const stopping = recs.find((r) => r.msg === "daemon stopping")
+        expect(stopping?.level).toBe("info")
+        expect(stopping?.component?.startsWith("daemon")).toBe(true)
+        expect(stopping?.attributes?.["reason"]).toBe("signal:SIGTERM")
+        // stop() is idempotent: the withLoggedDaemon teardown must not emit a
+        // second `daemon stopping` record.
+        expect(recs.filter((r) => r.msg === "daemon stopping")).toHaveLength(1)
+      },
+      { SENSUS_LOG_LEVEL: "debug" },
+      { previous: "stale-pid" },
+    )
   })
 
   test("a routed failure writes an error-level record, and the boot token is redacted", async () => {

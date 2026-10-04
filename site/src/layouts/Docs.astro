@@ -314,6 +314,9 @@ const toc = headings.filter((heading) => heading.depth === 2 || heading.depth ==
 
   .docs-bar {
     display: none;
+    /* The frame is named so a page change leaves it out of the animated
+       snapshot (see global.css, "Page changes"). */
+    view-transition-name: docs-bar;
   }
 
   /* Reading surfaces keep the sticky chrome solid: body text must not bleed
@@ -393,6 +396,9 @@ const toc = headings.filter((heading) => heading.depth === 2 || heading.depth ==
     gap: 0.6rem;
     align-content: start;
     margin-bottom: 0.5rem;
+    /* The frame is named so a page change leaves it out of the animated
+       snapshot (see global.css, "Page changes"). */
+    view-transition-name: docs-side;
   }
 
   .docs-side-head {
@@ -466,6 +472,7 @@ const toc = headings.filter((heading) => heading.depth === 2 || heading.depth ==
   }
 
   :global(::view-transition-group(docs-cursor)) {
+    z-index: 1;
     animation-duration: 0.3s;
     animation-timing-function: var(--ease-out);
   }
@@ -479,6 +486,21 @@ const toc = headings.filter((heading) => heading.depth === 2 || heading.depth ==
 
   :global(::view-transition-new(docs-cursor)) {
     animation: none;
+  }
+
+  /* The sidebar is frame, not content: it holds its place while the page
+     reprints, and only its active state cross-fades under the gliding
+     cursor. */
+  :global(::view-transition-group(docs-side)) {
+    animation: none;
+  }
+
+  :global(::view-transition-old(docs-side)) {
+    animation: side-out 0.25s var(--ease-out) both;
+  }
+
+  :global(::view-transition-new(docs-side)) {
+    animation: side-in 0.25s var(--ease-out) both;
   }
 
   .docs-contrib {
@@ -565,6 +587,9 @@ const toc = headings.filter((heading) => heading.depth === 2 || heading.depth ==
     .docs-side {
       position: sticky;
       top: 5.25rem;
+      align-self: start;
+      max-height: calc(100vh - 7rem);
+      overflow-y: auto;
       margin-bottom: 0;
     }
   }

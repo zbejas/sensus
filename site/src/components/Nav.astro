@@ -46,6 +46,9 @@ const links = [
     backdrop-filter: blur(14px) saturate(1.2);
     -webkit-backdrop-filter: blur(14px) saturate(1.2);
     border-bottom: 1px solid var(--border-soft);
+    /* The frame is named so a page change leaves it out of the animated
+       snapshot (see global.css, "Page changes"). */
+    view-transition-name: site-nav;
   }
 
   .nav-inner {

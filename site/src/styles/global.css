@@ -404,10 +404,10 @@ kbd {
   --rd: 0.3s;
 }
 
-/* ---- Page changes: the next page reprints ----
+/* ---- Page changes: the content reprints ----
 
    Cross-document view transitions. Every page opts in, so moving through the
-   site keeps the terminal's own rhythm: the current page clears to the
+   site keeps the terminal's own rhythm: the current content clears to the
    surface, the next prints in, and on /docs the sidebar's block cursor glides
    from the old entry to the new one (the shared element named in
    Docs.astro). Progressive enhancement: browsers without the API navigate
@@ -442,6 +442,37 @@ kbd {
     opacity: 0;
     transform: translateY(8px);
   }
+}
+
+/* The docs sidebar's active-state cross-fade (Docs.astro). */
+@keyframes side-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes side-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* The frame persists. Naming the nav, the docs bar, and the footer keeps
+   them out of the root snapshot, so the clear/print above animates only the
+   content that actually changes: the chrome is already correct in the new
+   document, so it swaps in place with no motion. The docs sidebar is the
+   one frame piece with state to carry: Docs.astro cross-fades it under the
+   gliding cursor. */
+::view-transition-group(site-nav),
+::view-transition-old(site-nav),
+::view-transition-new(site-nav),
+::view-transition-group(docs-bar),
+::view-transition-old(docs-bar),
+::view-transition-new(docs-bar),
+::view-transition-group(site-footer),
+::view-transition-old(site-footer),
+::view-transition-new(site-footer) {
+  animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

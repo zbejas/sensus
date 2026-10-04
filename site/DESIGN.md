@@ -121,14 +121,15 @@ scroll (a scroll-driven animation where supported). Reveals are progressive enha
 `js` is added before first paint, `reveal-fallback` restores everything if the observer
 fails, and without scripting every element is simply visible.
 
-Moving between pages reprints the site like the terminal: a cross-document view
-transition clears the current page to the surface and prints the next one in (the same
-short rise as the hero, one page surface at a time). On `/docs` the sidebar's block
-cursor is the shared element: it glides from the old entry to the new one while the page
-reprints, so the manual keeps its place. The opt-in lives in `src/styles/global.css` and
-the shared element in `src/layouts/Docs.astro`. This is progressive enhancement too:
-browsers without the API (Firefox today) navigate exactly as before, and reduced motion
-keeps the page change without the animation.
+Moving between pages reprints the content like the terminal: a cross-document view
+transition clears the current content to the surface and prints the next one in (the same
+short rise as the hero), while the frame — the top nav, the docs sidebar and bar, and the
+footer — is named and holds perfectly still. On `/docs` the sidebar's block cursor is the
+shared element: it glides from the old entry to the new one while the page reprints, so
+the manual keeps its place. The opt-in and the frame rules live in
+`src/styles/global.css`; the names sit on the components. This is progressive
+enhancement too: browsers without the API (Firefox today) navigate exactly as before,
+and reduced motion keeps the page change without the animation.
 
 Feedback stays small: the copy button presses and pings a success ring, buttons and nav
 links draw their underline, the caret and the vim block cursor blink. All motion is

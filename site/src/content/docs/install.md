@@ -59,7 +59,18 @@ For a headless scaffold without the TUI (useful in scripts), `sensus init --crea
 
 ## Update
 
-Run the install command again to move to the latest release. The binary is replaced; your config, sessions, and memory are untouched.
+```sh
+sensus update
+```
+
+Updates to the latest release in place (alias: `sensus upgrade`). `sensus update --check`
+only reports whether a newer release exists, and `sensus update --version <tag>` installs a
+specific one. Your config, sessions, and memory are untouched. From a source checkout it
+prints the git-based update instead.
+
+Sensus also notices a newer release at launch and shows a short reminder; you can turn that
+check off with `"updateCheck": false` in your configuration. Re-running the install command
+works too — the binary is replaced either way.
 
 ## Next steps
 

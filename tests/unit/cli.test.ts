@@ -59,7 +59,20 @@ describe("cli", () => {
       expect(text).toContain("--resume")
       expect(text).toContain("--yolo")
       expect(text).toContain("sensus kill")
+      expect(text).toContain("sensus update")
     }
+  })
+
+  test("update/upgrade dispatch is headless and returns the update action", () => {
+    const { io } = captureIo()
+    expect(handleCli(["update"], io, {})).toEqual({ action: "update", argv: [] })
+    expect(handleCli(["update", "--check"], io, {})).toEqual({ action: "update", argv: ["--check"] })
+    expect(handleCli(["upgrade", "--dry-run"], io, {})).toEqual({ action: "update", argv: ["--dry-run"] })
+    // Still headless inside a sensus pane (handled before the nest guard).
+    expect(handleCli(["update", "--check"], io, { SENSUS_ACTIVE: "1" })).toEqual({
+      action: "update",
+      argv: ["--check"],
+    })
   })
 
   test("kill dispatch is headless and returns the kill action", () => {

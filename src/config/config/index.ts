@@ -9,6 +9,7 @@ export {
   sensusDataDirFrom,
   sensusCacheDir,
   sensusStateDir,
+  sensusStateDirFrom,
   sensusRuntimeDirFrom,
   sensusRuntimeDir,
   configPath,

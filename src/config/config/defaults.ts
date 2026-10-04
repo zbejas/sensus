@@ -53,6 +53,7 @@ export function defaultConfig(): SensusConfig {
     tabRailWidth: 24,
     autoChatOnly: true,
     daemonPersistent: false,
+    updateCheck: true,
     keymap: {},
     approval: "confirm",
     defaultAgent: "copilot",

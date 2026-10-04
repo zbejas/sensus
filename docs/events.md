@@ -160,8 +160,15 @@ filter, an unparseable line never matches.
 `SENSUS_CONTROL_URL` is not referenced anywhere in `src/**`: there is **no
 forwarding path to construct** in v1. `tests/unit/engine/noEgress.test.ts`
 proves both halves — no source file references the variable, and a full offline
-headless turn (plus the sink) calls neither `fetch` nor `Bun.connect`. No
-telemetry, no licence check, no outbound call.
+headless turn (plus the sink) calls neither `fetch` nor `Bun.connect`. The turn
+and the sink make no outbound call.
+
+One deliberate exception sits OUTSIDE the event path: the launch update alert
+(`src/update.ts`; [`operations.md`](operations.md) "Update") asks for the latest
+release once a day, cached in the state dir, and `sensus update` does so
+explicitly. `updateCheck: false` (or `SENSUS_UPDATE_CHECK=0`) disables the
+launch check; the engine turn and the sink above never touch the network either
+way. No telemetry, no licence check.
 
 ## Gotchas & invariants
 

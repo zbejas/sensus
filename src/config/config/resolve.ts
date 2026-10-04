@@ -55,6 +55,7 @@ const TOP_KEYS = new Set([
   "layout",
   "autoChatOnly",
   "daemonPersistent",
+  "updateCheck",
   "tabs",
   "keymap",
   "theme",
@@ -576,6 +577,13 @@ export function resolveConfig(
       } else if (raw["daemonPersistent"] !== undefined) {
         warnings.push(`config: daemonPersistent must be a boolean — using default`)
       }
+      // updateCheck (docs/config.md "updateCheck", docs/operations.md "Update"):
+      // the launch update alert. A non-boolean keeps the default and warns.
+      if (typeof raw["updateCheck"] === "boolean") {
+        out.updateCheck = raw["updateCheck"]
+      } else if (raw["updateCheck"] !== undefined) {
+        warnings.push(`config: updateCheck must be a boolean — using default`)
+      }
       // tabs (docs/config.md "layout"): vertical rail width, used when layout
       // is "sidebar". A record is expected; unknown keys warn, width accepts
       // 16-60 (floored), anything else keeps the default.
@@ -840,6 +848,15 @@ export function resolveConfig(
     if (v === "1" || v === "true" || v === "yes" || v === "on") out.daemonPersistent = true
     else if (v === "0" || v === "false" || v === "no" || v === "off" || v === "") out.daemonPersistent = false
     else warnings.push(`env SENSUS_DAEMON_PERSISTENT must be a boolean-ish value — ignored`)
+  }
+  // SENSUS_UPDATE_CHECK (docs/config.md "updateCheck"): the launch update alert.
+  // Truthy/falsey spellings only; anything else warns.
+  const updateCheckEnv = env["SENSUS_UPDATE_CHECK"]
+  if (updateCheckEnv !== undefined) {
+    const v = updateCheckEnv.trim().toLowerCase()
+    if (v === "1" || v === "true" || v === "yes" || v === "on") out.updateCheck = true
+    else if (v === "0" || v === "false" || v === "no" || v === "off" || v === "") out.updateCheck = false
+    else warnings.push(`env SENSUS_UPDATE_CHECK must be a boolean-ish value — ignored`)
   }
   // env field overrides on the SELECTED endpoint (highest env tier).
   const active = out.endpoints[selected.endpoint]

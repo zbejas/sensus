@@ -77,7 +77,7 @@ describe("sensus app shell (in-tmux smoke)", () => {
         const start = await outer(
           bootSessionArgv(
             "app",
-            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_HOME=${sensusHome} SENSUS_RUNTIME_DIR=${sensusHome}/daemon-runtime bun run src/index.tsx`,
+            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_UPDATE_CHECK=0 SENSUS_HOME=${sensusHome} SENSUS_RUNTIME_DIR=${sensusHome}/daemon-runtime bun run src/index.tsx`,
           ),
         )
         expect(start.code).toBe(0)
@@ -413,7 +413,7 @@ describe("sensus app shell (in-tmux smoke)", () => {
         const start = await outer(
           bootSessionArgv(
             "appchatonly",
-            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_HOME=${sensusHome} SENSUS_RUNTIME_DIR=${sensusHome}/daemon-runtime bun run src/index.tsx`,
+            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_UPDATE_CHECK=0 SENSUS_HOME=${sensusHome} SENSUS_RUNTIME_DIR=${sensusHome}/daemon-runtime bun run src/index.tsx`,
           ),
         )
         expect(start.code).toBe(0)
@@ -483,7 +483,7 @@ describe("sensus app shell (in-tmux smoke)", () => {
         const start = await outer(
           bootSessionArgv(
             "appauto",
-            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_HOME=${sensusHome} SENSUS_RUNTIME_DIR=${sensusHome}/daemon-runtime bun run src/index.tsx`,
+            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_UPDATE_CHECK=0 SENSUS_HOME=${sensusHome} SENSUS_RUNTIME_DIR=${sensusHome}/daemon-runtime bun run src/index.tsx`,
             { cols: 60, rows: 30 },
           ),
         )
@@ -828,7 +828,7 @@ describe("sensus app shell (in-tmux smoke)", () => {
         const start = await outer(
           bootSessionArgv(
             "appinit",
-            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_HOME=${sensusHome} SENSUS_RUNTIME_DIR=${sensusHome}/daemon-runtime bun run src/index.tsx init; echo "INIT-EXIT=$?"; sleep 60`,
+            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_UPDATE_CHECK=0 SENSUS_HOME=${sensusHome} SENSUS_RUNTIME_DIR=${sensusHome}/daemon-runtime bun run src/index.tsx init; echo "INIT-EXIT=$?"; sleep 60`,
           ),
         )
         expect(start.code).toBe(0)
@@ -896,7 +896,7 @@ describe("sensus app shell (in-tmux smoke)", () => {
         const start = await outer(
           bootSessionArgv(
             "appready",
-            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_HOME=${sensusHome} SENSUS_RUNTIME_DIR=${sensusHome}/daemon-runtime bun run src/index.tsx init; echo "INIT-EXIT=$?"; sleep 60`,
+            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_UPDATE_CHECK=0 SENSUS_HOME=${sensusHome} SENSUS_RUNTIME_DIR=${sensusHome}/daemon-runtime bun run src/index.tsx init; echo "INIT-EXIT=$?"; sleep 60`,
           ),
         )
         expect(start.code).toBe(0)
@@ -972,7 +972,7 @@ describe("sensus app shell (in-tmux smoke)", () => {
         const start = await outer(
           bootSessionArgv(
             "appfirstrun",
-            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_HOME=${sensusHome} SENSUS_RUNTIME_DIR=${sensusHome}/daemon-runtime bun run src/index.tsx; echo "EXIT=$?"; sleep 60`,
+            `env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_UPDATE_CHECK=0 SENSUS_HOME=${sensusHome} SENSUS_RUNTIME_DIR=${sensusHome}/daemon-runtime bun run src/index.tsx; echo "EXIT=$?"; sleep 60`,
           ),
         )
         expect(start.code).toBe(0)
@@ -1183,7 +1183,7 @@ describe("sensus app shell (in-tmux smoke)", () => {
         [
           "#!/bin/bash",
           `cd ${REPO_ROOT}`,
-          `exec env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_HOME=${home} SENSUS_RUNTIME_DIR=${home}/daemon-runtime SENSUS_MOCK=1 SENSUS_DEBUG=1 bun run src/index.tsx "$@" 2>>${bootLog}`,
+          `exec env SHELL=/bin/bash SENSUS_SKIP=1 SENSUS_UPDATE_CHECK=0 SENSUS_HOME=${home} SENSUS_RUNTIME_DIR=${home}/daemon-runtime SENSUS_MOCK=1 SENSUS_DEBUG=1 bun run src/index.tsx "$@" 2>>${bootLog}`,
         ].join("\n") + "\n",
         { mode: 0o755 },
       )

@@ -324,7 +324,7 @@ export function appBootCommand(o: {
   /** Extra CLI args after the entry point (e.g. "--resume"). */
   args?: string
 }): string {
-  const bits = ["SHELL=/bin/bash", "SENSUS_SKIP=1", "SENSUS_NO_SETUP=1", "SENSUS_MODELS_DEV_WARM=0", `SENSUS_HOME=${o.sensusHome}`, sandboxRuntimeEnv(o.sensusHome)]
+  const bits = ["SHELL=/bin/bash", "SENSUS_SKIP=1", "SENSUS_NO_SETUP=1", "SENSUS_UPDATE_CHECK=0", "SENSUS_MODELS_DEV_WARM=0", `SENSUS_HOME=${o.sensusHome}`, sandboxRuntimeEnv(o.sensusHome)]
   if (o.mockUrl !== undefined) bits.push(`SENSUS_BASE_URL=${o.mockUrl}`)
   if (o.env !== undefined && o.env.length > 0) bits.push(o.env)
   return `env ${bits.join(" ")} bun run src/index.tsx${o.args ? ` ${o.args}` : ""} 2>>${o.bootLog}`

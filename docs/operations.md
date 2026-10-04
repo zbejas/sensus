@@ -16,7 +16,8 @@ User guide: https://sensus.sh/docs/development/
 | File | Purpose |
 |---|---|
 | `src/index.tsx` | Boot sequence: CLI dispatch, config, `--resume`, render; spawns the first PTY; computes the setup intent (`setup`/`setupError`) |
-| `src/cli.ts` | `--help` / `--version` / `init` (boot intent) + `secrets` + `daemon` dispatch + the nest guard (`USAGE`) |
+| `src/cli.ts` | `--help` / `--version` / `init` (boot intent) + `secrets` + `update` + `daemon` dispatch + the nest guard (`USAGE`) |
+| `src/update.ts` | `sensus update`/`upgrade` + the cached launch update alert ([Update](#update)) |
 | `src/daemon/cli.ts` | `sensus daemon` lifecycle: `serve`/`start`/`stop`/`status`/`logs` ([`daemon-api.md`](daemon-api.md)) |
 | `src/config/wizard.ts` | Pure setup-wizard logic: step machine, validation, draft→config merge, host-scan seed |
 | `src/ui/components/SetupWizard.tsx` | The setup modal overlay (signals + input handlers + fetch/IO) |
@@ -43,6 +44,7 @@ and from the compiled binary; the interactive `sensus init` marker just boots th
 | `sensus --help` / `-h` / `help` | Usage text |
 | `sensus --version` / `-v` / `version` | Version line (from `package.json`) |
 | `sensus --export <session.jsonl>` | Print a session transcript as Markdown (docs/sessions.md) |
+| `sensus update` / `sensus upgrade` | Update to the latest release in place (`--check`, `--dry-run`, `--version <tag>`) ([Update](#update)) |
 | `sensus secrets <cmd>` | Manage the encrypted secrets store: `list`, `set <NAME> <value>`, `rm <NAME>`, `migrate` (docs/config.md "Secrets") |
 | `sensus events tail` | Print the durable local event log (schema v1; `--follow`, `--type <t,t>`, `--since <ms\|ISO>`) ([`events.md`](events.md)) |
 | `sensus triggers tail` | Print the durable local trigger log (`--follow`, `--type <t,t>`) ([`triggers.md`](triggers.md)) |
@@ -326,6 +328,49 @@ The install step warns if the install dir is not on PATH, runs the headless
   `bun upgrade` first.
 - Release binaries are built on the pinned Bun 1.4.2 (see "Releases"), so the release path
   sidesteps the version floor entirely.
+
+## Update
+
+`sensus update` (alias `sensus upgrade`) checks the latest GitHub Release and, when a
+newer one exists, downloads the release installer and runs it against the running
+binary's own prefix, replacing the binary in place. Headless, like `secrets`/`daemon`:
+handled before the nest guard, so it works inside a sensus pane and from the compiled
+binary (`src/update.ts`, dispatched by `cli.ts`, awaited by `index.tsx`).
+
+| Flag | Behavior |
+|---|---|
+| `--check` | Report whether a newer release exists; install nothing |
+| `--dry-run` | Print what would be installed; install nothing |
+| `--version <tag>` | Install a specific release (e.g. `v0.2.0`); `latest` = the default |
+
+- **Up to date** prints the version and exits 0. A locally built binary ahead of the
+  latest release also reports up to date. `--check` with a newer release prints the tag
+  and points at `sensus update`; the exit code stays 0.
+- **In-place install.** The command derives the installer's `PREFIX` from the running
+  binary (`/usr/local/bin/sensus` → `/usr/local`, `~/.local/bin/sensus` → `~/.local`) so
+  the release lands where the running copy lives; an explicit `PREFIX` env still wins.
+  The install runs the release's own `install.sh` (the same script the one-liner uses),
+  so asset detection, checksum verification, sudo, and the config scaffold stay one
+  implementation. A locally built binary not under a `bin/` dir (e.g. `dist/sensus`)
+  cannot install in place and points at the installer one-liner instead.
+- **Source checkouts** (`bun run src/index.tsx`, `bin/sensus.js`) refuse and print
+  `git pull && bun install`.
+- The **daemon is a separate process**: after an update it still runs the old binary.
+  `sensus daemon restart` moves it to the new version (it loses live shells), or the boot
+  D21 handshake offers restart-vs-defer ([`daemon-api.md`](daemon-api.md) "Version
+  handshake").
+
+**Launch alert.** At boot the client checks the latest release at most once per 24h (the
+answer is cached at `<state-dir>/update-check.json`, docs/config.md "Locations") and
+shows a toast when a newer version exists, pointing at `sensus update`. The check is
+fire-and-forget: it never blocks or fails a boot, and an HTTP/parse failure stays silent.
+It is the deliberate egress exception to D8 ([`events.md`](events.md) "No egress"):
+disable it with `updateCheck: false` in `config.json` (docs/config.md "updateCheck") or
+`SENSUS_UPDATE_CHECK=0`, after which no update request leaves the machine. `sensus
+update` always checks the network — that is its job.
+
+Test seams: `SENSUS_UPDATE_URL` (the latest-release JSON), `SENSUS_INSTALL_URL` (the
+installer), and the installer's existing `SENSUS_RELEASES_BASE_URL`.
 
 ## Build & ship
 

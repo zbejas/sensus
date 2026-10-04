@@ -12,9 +12,10 @@
 import "./core/colorModeBoot.ts"
 import { createCliRenderer, type CliRenderer } from "@opentui/core"
 import { render } from "@opentui/solid"
-import { loadConfig, parseArgs, sensusDataDir, sensusHome, configPath } from "./config/config.ts"
+import { loadConfig, parseArgs, sensusDataDir, sensusHome, sensusStateDir, configPath } from "./config/config.ts"
 import { readRawConfig } from "./config/configFile.ts"
 import { handleCli, runEvents, runTriggers } from "./cli.ts"
+import { checkForUpdate, runUpdate, updateAlertMessage } from "./update.ts"
 import { connect, restartAndReconnect } from "./client/daemonEnsure.ts"
 import { RestClient } from "./client/restClient.ts"
 import { HostAdapter } from "./client/hostAdapter.ts"
@@ -61,6 +62,11 @@ async function main(): Promise<number> {
   // Headless trigger-log tail (docs/triggers.md): `--follow` blocks here.
   if (cli.action === "triggers") {
     return await runTriggers(cli.argv, cliIo, process.env)
+  }
+  // Headless self-update (docs/operations.md "Update"): checks the latest
+  // release and installs it in place. Never boots the TUI, never nests.
+  if (cli.action === "update") {
+    return await runUpdate(cli.argv, cliIo, process.env)
   }
   // The global kill switch (docs/operations.md "Daemon"): stop every running
   // daemon this user owns, whatever runtime dir it uses. Loaded lazily and
@@ -313,6 +319,22 @@ async function main(): Promise<number> {
     // The user deferred the D21 daemon restart at boot: keep the reminder visible
     // so it is clear they are running the older daemon until they restart.
     if (deferredWarning !== null) store.showToast(deferredWarning, "warn", 10000)
+
+    // Update alert (docs/operations.md "Update"): cached (≤1 request/day) and
+    // opt-out with `updateCheck: false` in config.json (or SENSUS_UPDATE_CHECK=0).
+    // Fire-and-forget — a check must never block or break the boot (AGENTS.md
+    // rule 10), and an info toast cannot bury the warnings above.
+    if (config.updateCheck) {
+      void checkForUpdate({ stateDir: sensusStateDir(), env: process.env })
+        .then((result) => {
+          if (result.status === "ok" && result.updateAvailable && result.latest !== null) {
+            store.showToast(updateAlertMessage(SENSUS_VERSION, result.latest), "info", 10000)
+          }
+        })
+        .catch(() => {
+          // never fatal
+        })
+    }
 
     // Route adapter-side failures (config reload, memory writes) to toasts.
     host.onToast = (m, level, ttl) => store.showToast(m, level, ttl)

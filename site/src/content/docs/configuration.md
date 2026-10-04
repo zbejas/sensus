@@ -249,6 +249,10 @@ What each store is for: [Memory](/docs/memory/).
 
 Local entries accept `command`, `args`, `env`, and `cwd`; remote entries accept `url` and `headers`. Both accept `enabled` and `timeout_s`, and `${NAME}` works in `env`, `headers`, and `cwd`. The settings screen manages the list. Full details: [MCP](/docs/mcp/).
 
+## Updates
+
+Sensus checks for a newer release once a day when it starts and shows a short notice when one exists. Set `updateCheck` to `false` to turn that check off; the request carries nothing about you or your machine either way. Update any time with `sensus update` — see [CLI](/docs/cli/) and [Install](/docs/install/).
+
 ## Background service
 
 The local worker that owns your shells runs on demand: it exits after a grace period when no window is attached and no terminal pane is alive, taking its shells with it. Set `daemonPersistent` to `true` to keep it running (that is what lets triggers act with no sensus window open), and `sensus daemon install` registers it as a user service that starts automatically. `sensus kill` stops every local worker and the shells they own. See [CLI](/docs/cli/) and [Triggers](/docs/triggers/).

@@ -118,6 +118,7 @@ The full path each of these resolves to is implemented in `src/config/config.ts`
   "layout": "sidebar",
   "autoChatOnly": true,
   "daemonPersistent": false,
+  "updateCheck": true,
   "triggers": [{ "on": "error.raised" }],
   "tabs": { "width": 24 },
   "keymap": {},
@@ -712,6 +713,16 @@ killed so it can no longer be re-attached — re-attach is for a *recent* detach
 session from a previous workday. Full policy: [`daemon-api.md`](daemon-api.md)
 "Lifecycle", [`operations.md`](operations.md) "Daemon".
 
+## `updateCheck`
+
+`updateCheck` (default `true`): the launch update alert ([`operations.md`](operations.md)
+"Update"). When on, the client asks for the latest release at most once per 24h (the answer
+is cached at `<state-dir>/update-check.json`) and toasts when a newer version exists.
+`SENSUS_UPDATE_CHECK=0` (or any of `false`/`off`/`no`) overrides it to `false`; the truthy
+spellings override to `true`. A non-boolean value warns and keeps the default. Boot-time: a
+hand-edit applies on the next launch. This is the one deliberate egress path — see
+[`events.md`](events.md) "No egress".
+
 ## `triggers`
 
 Local condition triggers ([`triggers.md`](triggers.md)): an opt-in list of rules
@@ -886,7 +897,8 @@ metadata, capped by the model's input-token ceiling → 128k fallback).
 2. Config file
 3. Env overrides: `SENSUS_MODEL` (`endpoint@model` or a bare id), `SENSUS_ENDPOINT`,
    `SENSUS_BASE_URL`, `SENSUS_APPROVAL` (`confirm|full-auto`), `SENSUS_DAEMON_PERSISTENT`
-   (truthy → `daemonPersistent`), `SENSUS_DAEMON_HOST`/`SENSUS_DAEMON_PORT` (the daemon
+   (truthy → `daemonPersistent`), `SENSUS_UPDATE_CHECK` (falsey → `updateCheck`),
+   `SENSUS_DAEMON_HOST`/`SENSUS_DAEMON_PORT` (the daemon
    TCP bind; loopback is the default and a non-loopback host is a deliberate opt-in,
    docs/daemon-api.md "Authenticating"), `SENSUS_MOCK=1` (provider
    test seam); `SENSUS_STREAM_TIMEOUT_MS` (idle stream timeout in ms, default 120000,

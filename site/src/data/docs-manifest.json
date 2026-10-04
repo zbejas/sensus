@@ -1,0 +1,22 @@
+{
+  "docs": [
+    { "slug": "install", "title": "Install", "order": 1, "status": "live", "devDoc": "docs/operations.md" },
+    { "slug": "how-it-works", "title": "How the agent works", "order": 2, "status": "live", "devDoc": "docs/agent.md" },
+    { "slug": "approvals", "title": "Approvals", "order": 3, "status": "live", "devDoc": "docs/agent-approvals.md" },
+    { "slug": "configuration", "title": "Configuration", "order": 4, "status": "live", "devDoc": "docs/config.md" },
+    { "slug": "keybindings", "title": "Keybindings", "order": 5, "status": "live", "devDoc": "docs/keybindings.md" },
+    { "slug": "tools", "title": "Tools", "order": 6, "status": "live", "devDoc": "docs/agent-tools.md" },
+    { "slug": "agents", "title": "Agents", "order": 7, "status": "live", "devDoc": "docs/agents.md" },
+    { "slug": "skills", "title": "Skills", "order": 8, "status": "live", "devDoc": "docs/skills.md" },
+    { "slug": "memory", "title": "Memory", "order": 9, "status": "live", "devDoc": "docs/memory.md" },
+    { "slug": "sessions", "title": "Sessions", "order": 10, "status": "live", "devDoc": "docs/sessions.md" },
+    { "slug": "mcp", "title": "MCP", "order": 11, "status": "live", "devDoc": "docs/mcp.md" },
+    { "slug": "triggers", "title": "Triggers", "order": 12, "status": "live", "devDoc": "docs/triggers.md" },
+    { "slug": "cli", "title": "CLI", "order": 13, "status": "live", "devDoc": "docs/operations.md" },
+    { "slug": "development", "title": "Build from source", "order": 14, "status": "live", "devDoc": "docs/operations.md" },
+    { "slug": "troubleshooting", "title": "Troubleshooting", "order": 15, "status": "live", "devDoc": null },
+    { "slug": "changelog", "title": "Changelog", "order": 16, "status": "live", "devDoc": null },
+    { "slug": "privacy", "title": "Privacy & data", "order": 17, "status": "live", "devDoc": "docs/events.md" },
+    { "slug": "license", "title": "License", "order": 18, "status": "live", "devDoc": "docs/licensing.md" }
+  ]
+}

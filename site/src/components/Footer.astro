@@ -1,0 +1,104 @@
+---
+const year = new Date().getFullYear()
+---
+
+<footer class="footer">
+  <div class="wrap footer-main">
+    <div class="footer-brand">
+      <a class="brand" href="/" aria-label="sensus home">
+        <span>sensus</span>
+      </a>
+      <p class="footer-tag">A terminal you live in.</p>
+    </div>
+    <nav class="footer-links" aria-label="Footer">
+      <a href="https://github.com/zbejas/sensus" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="/docs/">Docs</a>
+      <a href="https://github.com/zbejas/sensus/releases" target="_blank" rel="noopener noreferrer"
+        >Releases</a
+      >
+      <a href="https://github.com/zbejas/sensus/blob/main/LICENSE" target="_blank" rel="noopener noreferrer"
+        >Apache-2.0</a
+      >
+    </nav>
+  </div>
+  <div class="wrap footer-note">
+    <p>
+      Local-first: no accounts, no telemetry, and this page ships no analytics. Config, memory,
+      sessions, and logs stay on your machine.
+    </p>
+    <p class="footer-copy">© {year} <a href="https://zbejas.io" target="_blank" rel="noopener noreferrer">Zbejas</a></p>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    padding-block: clamp(3rem, 7vw, 5rem) 2.5rem;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .footer-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2rem;
+    flex-wrap: wrap;
+  }
+
+  .footer-tag {
+    margin: 0.5rem 0 0;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    color: var(--fg-muted);
+  }
+
+  .footer-links {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    font-size: 0.9rem;
+  }
+
+  .footer-links a {
+    color: var(--fg-muted);
+    text-decoration: none;
+  }
+
+  .footer-links a:hover {
+    color: var(--fg);
+  }
+
+  .footer-note {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 2rem;
+    flex-wrap: wrap;
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-soft);
+    font-size: 0.8125rem;
+    color: var(--fg-faint);
+  }
+
+  .footer-note p {
+    margin: 0;
+  }
+
+  .footer-copy {
+    font-family: var(--font-mono);
+    white-space: nowrap;
+  }
+
+  @media (max-width: 760px) {
+    .footer-main,
+    .footer-note {
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+
+    .footer-links {
+      justify-content: center;
+    }
+  }
+</style>

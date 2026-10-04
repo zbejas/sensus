@@ -1,0 +1,78 @@
+---
+import Base from "../layouts/Base.astro"
+import Nav from "../components/Nav.astro"
+import Footer from "../components/Footer.astro"
+import TerminalMock from "../components/TerminalMock.astro"
+import InstallCommand from "../components/InstallCommand.astro"
+import TerminalSection from "../components/sections/TerminalSection.astro"
+import AgentSection from "../components/sections/AgentSection.astro"
+import LifecycleSection from "../components/sections/LifecycleSection.astro"
+import EndpointsSection from "../components/sections/EndpointsSection.astro"
+import InstallSection from "../components/sections/InstallSection.astro"
+---
+
+<Base>
+  <Nav />
+  <main>
+    <section class="hero">
+      <div class="wrap">
+        <div class="hero-copy">
+          <h1 class="display rise" style="--d: 0.02s">A terminal you live in.</h1>
+          <p class="lead rise" style="--d: 0.09s">
+            A fullscreen TUI that pairs a real, interactive shell with an AI agent chat. The agent
+            sees your terminal, investigates in a hidden shell, and can type into your visible pane
+            on request.
+          </p>
+          <div class="hero-install rise" style="--d: 0.16s"><InstallCommand badge /></div>
+          <p class="hero-alt mono rise" style="--d: 0.23s">
+            detach any time: shells and agent turns keep running · kill switch: sensus kill
+          </p>
+        </div>
+      </div>
+      <div class="wrap hero-mock">
+        <TerminalMock />
+      </div>
+    </section>
+
+    <TerminalSection />
+    <AgentSection />
+    <LifecycleSection />
+    <EndpointsSection />
+    <InstallSection />
+  </main>
+  <Footer />
+</Base>
+
+<style>
+  .hero {
+    padding-block: clamp(3.25rem, 8vw, 6rem) clamp(3.5rem, 8vw, 6rem);
+  }
+
+  .hero-copy {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    gap: 1.35rem;
+    max-width: 880px;
+    margin-inline: auto;
+    text-align: center;
+  }
+
+  .hero-copy .lead {
+    max-width: 64ch;
+  }
+
+  .hero-install {
+    width: min(100%, 560px);
+    margin-top: 0.35rem;
+  }
+
+  .hero-alt {
+    margin: 0;
+    color: var(--fg-faint);
+  }
+
+  .hero-mock {
+    margin-top: clamp(2.5rem, 6vw, 4.5rem);
+  }
+</style>

@@ -1,0 +1,197 @@
+name: Release
+
+# A release is cut when the version in package.json changes on main. The
+# `version` job skips when the matching GitHub release already exists, so any
+# package.json edit that is not a version bump is a no-op, and a failed run can
+# be re-run (workflow_dispatch) without publishing twice.
+#
+# Pipeline:
+#   version — read package.json; skip when v<version> is already released
+#   verify  — license + typecheck + unit (the same cheap gates as ci.yml)
+#   build   — one NATIVE runner per target. OpenTUI ships per-platform native
+#             libraries, so each real binary must be built on its target OS/arch;
+#             the binary must run and report the package version before upload.
+#   publish — checksums + the installer asset + GitHub Release (tag v<version>,
+#             auto-generated notes).
+#
+# Pin the build to Bun 1.4.2: bun 1.4.1's bundler emits an invalid binary for
+# Elysia's schema module (docs/operations.md "Build & ship"), so the release
+# uses the known-good version the macOS ship guard already pins.
+
+on:
+  push:
+    branches: [main]
+    paths: ["package.json"]
+  workflow_dispatch:
+
+# Least privilege: only `publish` may write.
+permissions:
+  contents: read
+
+# Never cancel a run that could be mid-publish; a newer version bump waits.
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: check package version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(jq -r '.version // empty' package.json)"
+          if [ -z "$version" ]; then
+            echo "release: package.json has no version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "release: v$version is already published — nothing to do"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "release: v$version is new — building"
+          fi
+
+  verify:
+    name: verify
+    needs: version
+    if: needs.version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-${{ runner.arch }}-
+            bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run license:check
+      - run: bun run typecheck
+      - run: bun run test:unit
+
+  build:
+    name: build ${{ matrix.asset }}
+    needs: [version, verify]
+    if: needs.version.outputs.should_release == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            asset: sensus-linux-x64
+          - runner: ubuntu-24.04-arm
+            asset: sensus-linux-arm64
+          - runner: macos-latest
+            asset: sensus-darwin-arm64
+          - runner: macos-15-intel
+            asset: sensus-darwin-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-${{ runner.arch }}-
+            bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      # The build compiles AND ad-hoc signs on macOS (scripts/macosSign.ts).
+      # Running the binary below is the signature guard: a rejected signature
+      # is answered by the kernel with SIGKILL (`Killed: 9`) before any code.
+      - name: Build ${{ matrix.asset }}
+        run: bun run build --outfile "dist/${{ matrix.asset }}"
+      - name: Binary runs and version matches package.json
+        run: |
+          expected="sensus $(jq -r .version package.json)"
+          actual="$(./dist/${{ matrix.asset }} --version)"
+          echo "binary:   $actual"
+          echo "expected: $expected"
+          test "$actual" = "$expected"
+      - name: Headless config scaffold
+        run: |
+          export SENSUS_HOME="$RUNNER_TEMP/sensus-home-${{ matrix.asset }}"
+          ./dist/${{ matrix.asset }} init --create-config
+          test -f "$SENSUS_HOME/config.json"
+      - name: Checksum
+        working-directory: dist
+        run: |
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          else
+            shasum -a 256 "${{ matrix.asset }}" > "${{ matrix.asset }}.sha256"
+          fi
+          cat "${{ matrix.asset }}.sha256"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            dist/${{ matrix.asset }}
+            dist/${{ matrix.asset }}.sha256
+          if-no-files-found: error
+
+  publish:
+    name: publish v${{ needs.version.outputs.version }}
+    needs: [version, verify, build]
+    if: needs.version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: release
+          merge-multiple: true
+      - name: Collect checksums
+        working-directory: release
+        run: |
+          ls -la
+          : > checksums.txt
+          for f in *.sha256; do cat "$f" >> checksums.txt; done
+          rm -f *.sha256
+          echo "--- checksums.txt"
+          cat checksums.txt
+      - name: Stage the installer asset
+        # The website serves this snapshot at https://sensus.sh/install
+        # (site/functions/install.ts): /install always hands out a released
+        # installer, never the script from main.
+        run: cp scripts/install-release.sh release/install.sh
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ needs.version.outputs.version }}"
+          gh release create "v$version" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "sensus v$version" \
+            --generate-notes \
+            release/sensus-linux-x64 \
+            release/sensus-linux-arm64 \
+            release/sensus-darwin-arm64 \
+            release/sensus-darwin-x64 \
+            release/checksums.txt \
+            release/install.sh \
+            LICENSE \
+            NOTICE

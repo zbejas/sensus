@@ -1,0 +1,97 @@
+---
+---
+
+<section id="lifecycle" class="section band">
+  <div class="wrap lifecycle">
+    <h2 class="h2" data-reveal>Nothing to clean up.</h2>
+    <p class="body" data-reveal style="--rd: 0.06s">
+      Sensus runs as a child of your shell, never <code>exec</code>'d. Exit (or detach with
+      <code>Ctrl+A d</code>) and you are back at a plain prompt: the shells and the agent's work
+      keep running in the local daemon, re-attachable on the next boot. Closing a tab never kills
+      its shell; type <code>exit</code> in the pane to end one. When you want a clean slate,
+      <code>sensus kill</code> is the kill switch: one command stops every local daemon and the
+      shells they own.
+    </p>
+    <div
+      class="transcript mono"
+      aria-label="Detaching and reattaching leaves everything running"
+      data-reveal-print
+    >
+      <div class="line">
+        <span class="prompt">❯</span> sensus
+        <span class="comment"># the TUI opens; shells run in the local daemon</span>
+      </div>
+      <div class="line ellipsis">…</div>
+      <div class="line">
+        <span class="prompt">❯</span> Ctrl+A d
+        <span class="comment"># detach: back to this prompt, nothing killed</span>
+      </div>
+      <div class="line">
+        <span class="prompt">❯</span> sensus
+        <span class="comment"># reattach: tabs, shells, and sessions are still there</span>
+      </div>
+      <div class="line">
+        <span class="prompt">❯</span> sensus kill
+        <span class="comment"># kill switch: stop every local daemon and its shells</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .lifecycle {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    gap: 1.5rem;
+    text-align: center;
+  }
+
+  .lifecycle .body {
+    max-width: 70ch;
+  }
+
+  .transcript {
+    width: min(100%, 780px);
+    margin-top: 1rem;
+    padding: 1.1rem 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg);
+    box-shadow: var(--shadow);
+    text-align: left;
+    font-size: 0.8125rem;
+    line-height: 2;
+    overflow-x: auto;
+  }
+
+  .line {
+    white-space: nowrap;
+  }
+
+  .prompt {
+    color: var(--success);
+    margin-right: 0.5rem;
+  }
+
+  .comment {
+    margin-left: 0.6rem;
+    color: var(--fg-faint);
+  }
+
+  .ellipsis {
+    color: var(--fg-faint);
+    user-select: none;
+  }
+
+  @media (max-width: 640px) {
+    .transcript {
+      font-size: 0.75rem;
+    }
+
+    .line {
+      white-space: normal;
+      text-wrap: pretty;
+    }
+  }
+</style>

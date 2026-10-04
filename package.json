@@ -1,0 +1,63 @@
+{
+  "name": "sensus",
+  "version": "0.1.0",
+  "description": "A terminal you live in: an embedded-terminal TUI with an AI agent sidebar.",
+  "license": "Apache-2.0",
+  "author": "Anže Mavrič",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zbejas/sensus"
+  },
+  "homepage": "https://github.com/zbejas/sensus#readme",
+  "bugs": {
+    "url": "https://github.com/zbejas/sensus/issues"
+  },
+  "type": "module",
+  "private": true,
+  "bin": {
+    "sensus": "bin/sensus.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "docs",
+    "scripts/build.ts",
+    "README.md",
+    "AGENTS.md",
+    "tsconfig.json",
+    "bunfig.toml",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "bun": ">=1.4.1"
+  },
+  "scripts": {
+    "dev": "bun run src/index.tsx",
+    "build": "bun run scripts/build.ts",
+    "typecheck": "tsc --noEmit",
+    "license:check": "bun run scripts/license-check.ts",
+    "test": "bun run test:clean && bun test; ec=$?; bash scripts/test-cleanup.sh >/dev/null 2>&1 || true; exit $ec",
+    "test:unit": "bun run test:clean && bun test tests/unit; ec=$?; bash scripts/test-cleanup.sh >/dev/null 2>&1 || true; exit $ec",
+    "test:smoke": "bun run test:clean && bun test tests/smoke; ec=$?; bash scripts/test-cleanup.sh >/dev/null 2>&1 || true; exit $ec",
+    "test:clean": "bash scripts/test-cleanup.sh"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.71",
+    "@ai-sdk/google": "^4.0.87",
+    "@ai-sdk/openai": "^4.0.83",
+    "@ai-sdk/openai-compatible": "^3.0.45",
+    "@ai-sdk/provider": "^4.0.11",
+    "@elysiajs/openapi": "^1.4.16",
+    "@opentui/core": "0.5.11",
+    "@opentui/keymap": "0.5.11",
+    "@opentui/solid": "0.5.11",
+    "ai": "^7.0.94",
+    "elysia": "^1.4.30",
+    "solid-js": "1.9.12"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.14",
+    "typescript": "^5.8.3"
+  }
+}

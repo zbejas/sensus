@@ -1,0 +1,40 @@
+name: Nightly
+
+on:
+  schedule:
+    # 06:17 UTC daily — off the hour to avoid the top-of-hour runner crunch.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+# Smoke does NOT run here (see ci.yml): the suite boots the real app in tmux and
+# is too taxing for GitHub. The nightly only does the one thing that is
+# genuinely time-based and cheap — re-check upstream advisories against the
+# lockfile (new CVEs appear without a code change). Dependabot opens the fixes
+# (dependabot.yml). Advisory: continue-on-error, so a new CVE elsewhere does not
+# paint the run red on its own.
+jobs:
+  dependency-audit:
+    name: dependency audit (advisory)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun audit

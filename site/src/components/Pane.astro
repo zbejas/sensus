@@ -1,0 +1,86 @@
+---
+interface Props {
+  tabs?: string[]
+  active?: number
+  status?: string
+  label?: string
+  class?: string
+  /** Prints in place when the pane scrolls into view (the terminal technique). */
+  reveal?: boolean
+}
+
+const { tabs = [], active = 0, status, label, class: className = "", reveal = false } = Astro.props
+---
+
+<figure class:list={["pane", className]} aria-label={label} data-reveal-step={reveal ? "" : undefined}>
+  {
+    tabs.length > 0 && (
+      <div class="pane-tabs">
+        {tabs.map((tab, index) => (
+          <span class:list={["pane-tab", { active: index === active }]}>{tab}</span>
+        ))}
+      </div>
+    )
+  }
+  <div class="pane-body"><slot /></div>
+  {status && <figcaption class="pane-status">{status}</figcaption>}
+</figure>
+
+<style>
+  .pane {
+    margin: 0;
+    border: 1px solid var(--border);
+    border-radius: 5px; /* one terminal cell, like the app's ╭ ╮ ╰ ╯ glyphs */
+    background: var(--bg);
+    overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+
+  .pane-tabs {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-bar);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+  }
+
+  .pane-tab {
+    padding: 0.15rem 0.45rem;
+    border-radius: 5px;
+    color: var(--fg-faint);
+  }
+
+  .pane-tab.active {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .pane-body {
+    padding: 1rem 1.15rem;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.75;
+    overflow: hidden;
+  }
+
+  .pane-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.9rem;
+    background: var(--bg-bar);
+    border-top: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+  }
+
+  @media (max-width: 760px) {
+    .pane-body {
+      font-size: 0.75rem;
+    }
+  }
+</style>

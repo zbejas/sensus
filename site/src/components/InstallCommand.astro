@@ -1,0 +1,187 @@
+---
+interface Props {
+  size?: "lg" | "sm"
+  /** Pin the latest-release tag to the card's bottom-left edge. */
+  badge?: boolean
+  class?: string
+}
+
+const { size = "lg", badge = false, class: className = "" } = Astro.props
+---
+
+<div class:list={["install", `install-${size}`, className]} data-install>
+  {
+    badge && (
+      <span class="install-badge">
+        latest <span class="install-badge-version">v{__SENSUS_VERSION__}</span>
+      </span>
+    )
+  }
+  <code class="install-cmd">
+    <span class="install-prompt" aria-hidden="true">$</span>
+    <span data-cmd-text>curl -fsSL https://sensus.sh/install | bash</span>
+  </code>
+  <button class="install-copy" type="button" data-copy aria-label="Copy the install command">
+    <span data-copy-label aria-live="polite">Copy</span>
+  </button>
+</div>
+
+<script>
+  const buttons = document.querySelectorAll<HTMLButtonElement>("[data-copy]")
+
+  for (const button of buttons) {
+    let timer: number | undefined
+
+    button.addEventListener("click", async () => {
+      const root = button.closest("[data-install]")
+      const text = root?.querySelector("[data-cmd-text]")?.textContent?.trim()
+      const label = button.querySelector<HTMLElement>("[data-copy-label]")
+      if (!text || !label) return
+
+      // Keep the original once: a second click inside the revert window must
+      // not capture "Copied" as the label to restore.
+      label.dataset.original ??= label.textContent ?? "Copy"
+
+      try {
+        await navigator.clipboard.writeText(text)
+        label.textContent = "Copied"
+        button.dataset.copied = "true"
+      } catch {
+        label.textContent = "Copy failed"
+        delete button.dataset.copied
+      }
+
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        label.textContent = label.dataset.original ?? "Copy"
+        delete button.dataset.copied
+      }, 2000)
+    })
+  }
+</script>
+
+<style>
+  .install {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-card);
+    font-family: var(--font-mono);
+    min-width: 0;
+  }
+
+  /* The latest-release tag rides the card's bottom edge, like a tag on a
+     release tarball: page-surface pill, quiet mono, version anchored. */
+  .install-badge {
+    position: absolute;
+    bottom: -0.7rem;
+    left: 0.75rem;
+    z-index: 1;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    padding: 0.1rem 0.5rem 0.12rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--fg-faint);
+    font-size: 0.75rem;
+    line-height: 1.4;
+    white-space: nowrap;
+  }
+
+  .install-badge-version {
+    color: var(--fg-muted);
+  }
+
+  .install-lg {
+    padding: 0.7rem 0.7rem 0.7rem 1.05rem;
+    font-size: 0.875rem;
+  }
+
+  .install-sm {
+    padding: 0.45rem 0.45rem 0.45rem 0.85rem;
+    font-size: 0.8125rem;
+  }
+
+  /* The command is not an inline code chip: strip the global `:not(pre) > code`
+     card so it does not nest a second frame inside the install card. */
+  .install-cmd {
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    font-size: inherit;
+  }
+
+  .install-cmd::-webkit-scrollbar {
+    display: none;
+  }
+
+  .install-prompt {
+    color: var(--success);
+    user-select: none;
+    margin-right: 0.4rem;
+  }
+
+  .install-copy {
+    margin-left: auto;
+    flex-shrink: 0;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg-bar);
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease,
+      background 0.15s ease,
+      transform 0.15s var(--ease-out);
+  }
+
+  .install-copy:hover {
+    color: var(--fg);
+    border-color: var(--fg-faint);
+  }
+
+  .install-copy:active {
+    transform: translateY(1px);
+  }
+
+  .install-copy[data-copied="true"] {
+    color: var(--success);
+    border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+  }
+
+  /* A short confirmation ring, then the success color stays. */
+  @media (prefers-reduced-motion: no-preference) {
+    .install-copy[data-copied="true"] {
+      animation: copy-ping 0.5s var(--ease-out);
+    }
+  }
+
+  @keyframes copy-ping {
+    from {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 40%, transparent);
+    }
+    to {
+      box-shadow: 0 0 0 7px transparent;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .install-copy:active {
+      transform: none;
+    }
+  }
+</style>

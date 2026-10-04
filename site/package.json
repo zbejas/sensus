@@ -1,0 +1,27 @@
+{
+  "name": "sensus-site",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The sensus.sh landing site and /install endpoint.",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "test": "bun test",
+    "og": "bun run scripts/og.ts",
+    "readme-svg": "bun run scripts/readme-svg.ts"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "^3.7.4",
+    "astro": "^7.3.5"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@types/bun": "^1.4.2",
+    "sharp": "^0.35.5",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.147.0"
+  }
+}

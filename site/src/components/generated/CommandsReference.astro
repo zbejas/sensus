@@ -1,0 +1,58 @@
+---
+import commands from "../../data/generated/commands.json"
+---
+
+<section class="ref" aria-label="Chat commands">
+  <div class="ref-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>What it does</th>
+          <th>Keys</th>
+        </tr>
+      </thead>
+      <tbody>
+        {
+          commands.commands.map((row) => (
+            <tr>
+              <td class="ref-cmd">
+                <code>/{row.name}{row.usage === "" ? "" : ` ${row.usage}`}</code>
+              </td>
+              <td>
+                <span class="ref-label">{row.label ?? row.description}</span>
+                {row.label !== null && <span class="ref-desc">{row.description}</span>}
+              </td>
+              <td class="ref-keys">
+                {row.keys.length > 0 ? row.keys.map((key) => <kbd>{key}</kbd>) : "-"}
+              </td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<style>
+  .ref-scroll {
+    overflow-x: auto;
+  }
+
+  .ref-cmd,
+  .ref-keys {
+    white-space: nowrap;
+  }
+
+  .ref-label {
+    display: block;
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  .ref-desc {
+    display: block;
+    color: var(--fg-muted);
+    font-size: 0.85em;
+  }
+</style>

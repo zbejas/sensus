@@ -1,0 +1,422 @@
+/*
+ * Base styles and shared primitives for sensus.sh. Component-specific styles
+ * live in the components; the container, type scale, buttons, links, and the
+ * browser surfaces (selection, caret, scrollbars, focus) live here so they
+ * stay consistent everywhere.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  scroll-behavior: smooth;
+  scrollbar-color: var(--border) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--selection-bg);
+  color: var(--selection-fg);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* The scrollbar belongs to the palette too. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 3px solid var(--bg);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-faint);
+}
+
+img,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in srgb, var(--fg) 28%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
+  transition:
+    color 0.15s ease,
+    text-decoration-color 0.15s ease;
+}
+
+a:hover {
+  color: var(--accent);
+  text-decoration-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+code,
+pre,
+kbd {
+  font-family: var(--font-mono);
+}
+
+:not(pre) > code {
+  padding: 0.08em 0.35em;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  background: var(--bg-card);
+  color: var(--fg);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+/* Layout */
+
+.wrap {
+  width: min(var(--maxw), 100% - 2 * var(--gutter));
+  margin-inline: auto;
+}
+
+.section {
+  padding-block: var(--section-y);
+}
+
+.section + .section {
+  border-top: 1px solid var(--border-soft);
+}
+
+/* A full-bleed quieter band, used once to pace the scroll. */
+.band {
+  background: var(--bg-card);
+  border-block: 1px solid var(--border-soft);
+}
+
+.band.section {
+  padding-block: calc(var(--section-y) * 0.78);
+}
+
+/* Type */
+
+.display {
+  margin: 0;
+  font-size: clamp(2.6rem, 6.4vw, 5rem);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.h2 {
+  margin: 0;
+  font-size: clamp(1.7rem, 3.4vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.h3 {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+.lead {
+  margin: 0;
+  font-size: clamp(1.075rem, 1.5vw, 1.3rem);
+  line-height: 1.55;
+  color: var(--fg-muted);
+  text-wrap: pretty;
+}
+
+.body {
+  margin: 0;
+  max-width: 68ch;
+  color: var(--fg-muted);
+  text-wrap: pretty;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0;
+}
+
+/* Buttons */
+
+.btn,
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.05rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    transform 0.15s var(--ease-out),
+    filter 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.btn {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.btn:hover {
+  color: var(--accent-fg);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.btn:active {
+  transform: translateY(0) scale(0.985);
+}
+
+.btn-ghost {
+  border: 1px solid var(--border);
+  color: var(--fg);
+}
+
+.btn-ghost:hover {
+  color: var(--fg);
+  border-color: var(--fg-faint);
+  background: var(--bg-hover);
+}
+
+.btn-ghost:active {
+  transform: translateY(1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn:hover,
+  .btn:active,
+  .btn-ghost:hover,
+  .btn-ghost:active {
+    transform: none;
+  }
+}
+
+/* Wordmark: the name plus the block cursor it is never seen without. */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+.brand:hover {
+  color: var(--fg);
+}
+
+.brand-cursor {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  background: var(--accent);
+  animation: blink 1.15s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .brand-cursor {
+    animation: none;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The boot-in entrance: terminal output appears line by line, instantly:
+   `visibility` is a main-thread property, so no composited layers are left
+   behind (opacity/transform entrances made large captures drop the pane).
+   Visible by default when animations are unavailable. */
+@media (prefers-reduced-motion: no-preference) {
+  .boot {
+    animation: boot-in 1ms linear both;
+    animation-delay: var(--d, 0s);
+  }
+}
+
+@keyframes boot-in {
+  from {
+    visibility: hidden;
+  }
+  to {
+    visibility: visible;
+  }
+}
+
+/* The hero's own banner: prose eases in while the terminal prints. */
+@media (prefers-reduced-motion: no-preference) {
+  .rise {
+    animation: rise-in 0.55s var(--ease-out) both;
+    animation-delay: var(--d, 0s);
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* The approval gate breathes while it is waiting on screen. */
+@keyframes wait-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* Scroll reveals are progressive enhancement: the `js` class (added in the
+   document head, before first paint) gates the hidden states, so nothing is
+   ever hidden without scripting, and `reveal-fallback` restores everything if
+   the observer fails to boot. Prose eases in; terminal surfaces and status
+   chrome print instantly (the `.boot` technique, no composited layers); lists
+   arrive as lists with a capped stagger. Under reduced motion every element
+   keeps its final state with no spatial movement. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-reveal] {
+    transition:
+      opacity 0.45s var(--ease-out),
+      transform 0.45s var(--ease-out);
+    transition-delay: var(--rd, 0s);
+  }
+
+  html.js:not(.reveal-fallback) [data-reveal]:not(.is-inview) {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  html.js:not(.reveal-fallback) [data-reveal-step]:not(.is-inview),
+  html.js:not(.reveal-fallback) [data-reveal-print]:not(.is-inview) > * {
+    visibility: hidden;
+  }
+
+  html.js:not(.reveal-fallback) [data-reveal-step].is-inview,
+  html.js:not(.reveal-fallback) [data-reveal-print].is-inview > * {
+    animation: boot-in 1ms linear both;
+    animation-delay: var(--rd, 0s);
+  }
+
+  [data-reveal-stagger] > * {
+    transition:
+      opacity 0.4s var(--ease-out),
+      transform 0.4s var(--ease-out);
+    transition-delay: var(--rd, 0s);
+  }
+
+  html.js:not(.reveal-fallback) [data-reveal-stagger]:not(.is-inview) > * {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  html.js:not(.reveal-fallback) [data-pulse].is-inview {
+    animation: wait-pulse 2.4s ease-in-out infinite;
+  }
+}
+
+/* A list appears as a list: capped sibling stagger, six at most. */
+[data-reveal-stagger] > *:nth-child(1) {
+  --rd: 0s;
+}
+[data-reveal-stagger] > *:nth-child(2) {
+  --rd: 0.06s;
+}
+[data-reveal-stagger] > *:nth-child(3) {
+  --rd: 0.12s;
+}
+[data-reveal-stagger] > *:nth-child(4) {
+  --rd: 0.18s;
+}
+[data-reveal-stagger] > *:nth-child(5) {
+  --rd: 0.24s;
+}
+[data-reveal-stagger] > *:nth-child(n + 6) {
+  --rd: 0.3s;
+}
+
+/* Terminal output prints in order when the transcript enters view. */
+[data-reveal-print] > *:nth-child(1) {
+  --rd: 0s;
+}
+[data-reveal-print] > *:nth-child(2) {
+  --rd: 0.14s;
+}
+[data-reveal-print] > *:nth-child(3) {
+  --rd: 0.28s;
+}
+[data-reveal-print] > *:nth-child(4) {
+  --rd: 0.42s;
+}
+[data-reveal-print] > *:nth-child(n + 5) {
+  --rd: 0.56s;
+}

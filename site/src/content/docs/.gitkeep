@@ -1,0 +1,2 @@
+# Keeps src/content/docs/ present while the manual pages are being written.
+# The Astro `docs` collection is a glob over *.md here; this file is ignored.

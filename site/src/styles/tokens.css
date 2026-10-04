@@ -1,0 +1,93 @@
+/*
+ * Design tokens for sensus.sh.
+ *
+ * A custom pair ("ink" dark, "paper" light) built on the app's token
+ * roles rather than one of its stock palettes: layered slate surfaces instead
+ * of flat black, warm paper instead of stark white, one cyan-teal accent
+ * reserved for focus/selection, and the terminal semantics (success/warning/
+ * danger) the mock's shell output reuses. Dark is the default scene (a
+ * terminal in a dim room) with a full light rendition via prefers-color-scheme.
+ *
+ * Every text token clears 4.5:1 on each of its three surfaces (bg, card, bar);
+ * hairlines are decorative and deliberately quiet.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Surfaces: ink, layered */
+  --bg: #11151b;
+  --bg-card: #1a1f27;
+  --bg-bar: #0c0f14;
+  --bg-hover: #212732;
+
+  /* Text */
+  --fg: #e9ecf2;
+  --fg-muted: #9ba4b2;
+  --fg-faint: #7e8896;
+
+  /* Lines */
+  --border: #2b323d;
+  --border-soft: #20262f;
+
+  /* Accents: one cyan-teal for focus/selection, terminal semantics beside it */
+  --accent: #58c4d8;
+  --accent-fg: #06161c;
+  --success: #82d09b;
+  --warning: #e6b566;
+  --danger: #e97e7e;
+  --selection-bg: #1d4353;
+  --selection-fg: #ffffff;
+
+  /* Type */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* Rhythm */
+  --maxw: 1120px;
+  --gutter: clamp(1.25rem, 5vw, 3rem);
+  --section-y: clamp(4.5rem, 11vw, 8.5rem);
+  --radius: 10px;
+  --radius-lg: 14px;
+
+  /* Motion: one authored entrance, exponential ease-out */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur: 0.7s;
+
+  /* Elevation: offset + soft blur, never a zero-offset halo */
+  --shadow:
+    0 1px 0 rgba(255, 255, 255, 0.03),
+    0 24px 60px -28px rgba(0, 0, 0, 0.85);
+  /* The nav gains this once the page scrolls under it. */
+  --shadow-nav: 0 12px 28px -24px rgba(0, 0, 0, 0.9);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --bg: #f7f6f2;
+    --bg-card: #ffffff;
+    --bg-bar: #eeece6;
+    --bg-hover: #f1efe9;
+    --fg: #1b2027;
+    --fg-muted: #59616d;
+    --fg-faint: #5f6874;
+    --border: #d7d4cc;
+    --border-soft: #e7e4dc;
+    --accent: #0b6b80;
+    --accent-fg: #ffffff;
+    --success: #1f7a4a;
+    --warning: #8a5a00;
+    --danger: #b83232;
+    --selection-bg: #cfe7ec;
+    --selection-fg: #10262c;
+    --shadow:
+      0 1px 0 rgba(255, 255, 255, 0.6),
+      0 24px 50px -30px rgba(27, 32, 39, 0.35);
+    --shadow-nav: 0 12px 28px -24px rgba(27, 32, 39, 0.5);
+  }
+}

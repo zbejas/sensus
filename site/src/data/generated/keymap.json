@@ -1,0 +1,346 @@
+{
+  "bindings": [
+    {
+      "action": "open-settings",
+      "keys": [
+        "ctrl+o"
+      ],
+      "label": "Open settings",
+      "description": "endpoints, keys, themes, globals",
+      "category": "settings",
+      "categoryLabel": "Settings",
+      "slash": "/settings"
+    },
+    {
+      "action": "open-agents",
+      "keys": [
+        "alt+m"
+      ],
+      "label": "Agent picker",
+      "description": "switch agent (copilot/…)",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "slash": "/agent"
+    },
+    {
+      "action": "copy-message",
+      "keys": [
+        "alt+b"
+      ],
+      "label": "Copy message",
+      "description": "copy the newest message (or the selection)",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "slash": null
+    },
+    {
+      "action": "chat-bottom",
+      "keys": [
+        "alt+end"
+      ],
+      "label": "Jump to latest",
+      "description": "scroll the chat to the newest message",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "slash": null
+    },
+    {
+      "action": "paste-image",
+      "keys": [
+        "ctrl+shift+v",
+        "alt+v"
+      ],
+      "label": "Paste",
+      "description": "clipboard image/file/text → chat",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "slash": "/image"
+    },
+    {
+      "action": "revert-message",
+      "keys": [
+        "alt+r"
+      ],
+      "label": "Revert to message",
+      "description": "rewind the chat to the newest user turn",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "slash": null
+    },
+    {
+      "action": "send-code-block",
+      "keys": [
+        "alt+s"
+      ],
+      "label": "Send code block",
+      "description": "newest code block → visible terminal",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "slash": null
+    },
+    {
+      "action": "toggle-approval",
+      "keys": [
+        "alt+y"
+      ],
+      "label": "Toggle approval",
+      "description": "confirm / full-auto",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "slash": "/yolo"
+    },
+    {
+      "action": "toggle-card-style",
+      "keys": [
+        "alt+c"
+      ],
+      "label": "Toggle card style",
+      "description": "message cards: fill panel / border",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "slash": "/cards"
+    },
+    {
+      "action": "toggle-thinking",
+      "keys": [
+        "alt+t"
+      ],
+      "label": "Toggle thinking display",
+      "description": "model reasoning show/hide",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "slash": "/thinking"
+    },
+    {
+      "action": "toggle-details",
+      "keys": [
+        "alt+e"
+      ],
+      "label": "Toggle tool details",
+      "description": "expand/collapse tool output",
+      "category": "chat",
+      "categoryLabel": "Chat",
+      "slash": "/details"
+    },
+    {
+      "action": "open-menu",
+      "keys": [
+        "ctrl+p"
+      ],
+      "label": "Command menu",
+      "description": "this palette (Ctrl+P)",
+      "category": "help",
+      "categoryLabel": "Help",
+      "slash": null
+    },
+    {
+      "action": "close-tab",
+      "keys": [
+        "ctrl+w"
+      ],
+      "label": "Close tab",
+      "description": "detaches: the shell keeps running (quits when last)",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "tab-1",
+      "keys": [
+        "alt+1"
+      ],
+      "label": "Go to tab 1",
+      "description": "switch to tab 1",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "tab-2",
+      "keys": [
+        "alt+2"
+      ],
+      "label": "Go to tab 2",
+      "description": "switch to tab 2",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "tab-3",
+      "keys": [
+        "alt+3"
+      ],
+      "label": "Go to tab 3",
+      "description": "switch to tab 3",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "tab-4",
+      "keys": [
+        "alt+4"
+      ],
+      "label": "Go to tab 4",
+      "description": "switch to tab 4",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "tab-5",
+      "keys": [
+        "alt+5"
+      ],
+      "label": "Go to tab 5",
+      "description": "switch to tab 5",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "tab-6",
+      "keys": [
+        "alt+6"
+      ],
+      "label": "Go to tab 6",
+      "description": "switch to tab 6",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "tab-7",
+      "keys": [
+        "alt+7"
+      ],
+      "label": "Go to tab 7",
+      "description": "switch to tab 7",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "tab-8",
+      "keys": [
+        "alt+8"
+      ],
+      "label": "Go to tab 8",
+      "description": "switch to tab 8",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "tab-9",
+      "keys": [
+        "alt+9"
+      ],
+      "label": "Go to tab 9",
+      "description": "switch to tab 9",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "new-tab",
+      "keys": [
+        "ctrl+t"
+      ],
+      "label": "New tab",
+      "description": "terminal session + fresh chat",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "tab-next",
+      "keys": [
+        "alt+right"
+      ],
+      "label": "Next tab",
+      "description": "focus the tab to the right",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "prefix",
+      "keys": [
+        "ctrl+a"
+      ],
+      "label": "Prefix key",
+      "description": "Ctrl+A command prefix (tmux muscle memory)",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "tab-prev",
+      "keys": [
+        "alt+left"
+      ],
+      "label": "Previous tab",
+      "description": "focus the tab to the left",
+      "category": "tabs",
+      "categoryLabel": "Tabs",
+      "slash": null
+    },
+    {
+      "action": "toggle-chat-only",
+      "keys": [
+        "alt+home"
+      ],
+      "label": "Chat-only view",
+      "description": "hide the terminal pane (full-width chat)",
+      "category": "layout",
+      "categoryLabel": "Layout",
+      "slash": null
+    },
+    {
+      "action": "focus-sidebar",
+      "keys": [
+        "alt+a"
+      ],
+      "label": "Focus chat input",
+      "description": "move focus to the chat",
+      "category": "layout",
+      "categoryLabel": "Layout",
+      "slash": null
+    },
+    {
+      "action": "sidebar-grow",
+      "keys": [
+        "alt+."
+      ],
+      "label": "Grow chat",
+      "description": "chat +4 cols (max 50%)",
+      "category": "layout",
+      "categoryLabel": "Layout",
+      "slash": null
+    },
+    {
+      "action": "sidebar-shrink",
+      "keys": [
+        "alt+,"
+      ],
+      "label": "Shrink chat",
+      "description": "chat -4 cols (min 30)",
+      "category": "layout",
+      "categoryLabel": "Layout",
+      "slash": null
+    },
+    {
+      "action": "focus-toggle",
+      "keys": [
+        "shift+tab"
+      ],
+      "label": "Toggle focus",
+      "description": "terminal / chat",
+      "category": "layout",
+      "categoryLabel": "Layout",
+      "slash": null
+    }
+  ]
+}

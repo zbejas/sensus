@@ -1,0 +1,50 @@
+---
+import { getCollection, render } from "astro:content"
+import type { InferGetStaticPropsType } from "astro"
+
+import Docs from "../../layouts/Docs.astro"
+import CommandsReference from "../../components/generated/CommandsReference.astro"
+import KeymapReference from "../../components/generated/KeymapReference.astro"
+import ToolsReference from "../../components/generated/ToolsReference.astro"
+
+export async function getStaticPaths() {
+  const entries = (await getCollection("docs")).sort((a, b) => a.data.order - b.data.order)
+  return entries.map((entry, index) => {
+    const before = index > 0 ? entries[index - 1] : undefined
+    const after = index < entries.length - 1 ? entries[index + 1] : undefined
+    return {
+      params: { slug: entry.id },
+      props: {
+        entry,
+        prev: before ? { slug: before.id, title: before.data.title } : null,
+        next: after ? { slug: after.id, title: after.data.title } : null,
+      },
+    }
+  })
+}
+
+type Props = InferGetStaticPropsType<typeof getStaticPaths>
+
+const { entry, prev, next } = Astro.props
+const { Content, headings } = await render(entry)
+const toc = headings.map((heading) => ({
+  depth: heading.depth,
+  slug: heading.slug,
+  text: heading.text,
+}))
+const generated = entry.data.generated
+---
+
+<Docs
+  title={entry.data.title}
+  description={entry.data.description}
+  currentSlug={entry.id}
+  headings={toc}
+  prev={prev}
+  next={next}
+>
+  <Content />
+  {generated === "keymap" && <KeymapReference slot="generated" />}
+  {generated === "commands" && <CommandsReference slot="generated" />}
+  {generated === "tools" && <ToolsReference slot="generated" />}
+</Docs>

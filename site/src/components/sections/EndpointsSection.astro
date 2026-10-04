@@ -1,0 +1,110 @@
+---
+const providers = [
+  { name: "openai-compatible", note: "/chat/completions", tag: "default" },
+  { name: "openai", note: "Responses API" },
+  { name: "anthropic", note: "Messages API" },
+  { name: "google", note: "Gemini" },
+]
+---
+
+<section id="endpoints" class="section">
+  <div class="wrap split">
+    <div class="copy" data-reveal-stagger>
+      <h2 class="h2">Your model, your endpoint.</h2>
+      <p class="body">
+        Sensus speaks to any configured endpoint through the Vercel AI SDK: a hosted API, a
+        model on your homelab box, or a gateway. <code>sensus init</code> walks you through the setup.
+      </p>
+      <p class="config mono">
+        config, memory, and sessions live in <code>~/.config/sensus/</code>
+      </p>
+    </div>
+
+    <dl class="providers" data-reveal-stagger>
+      {
+        providers.map((provider) => (
+          <div class="row">
+            <dt class="mono">{provider.name}</dt>
+            <dd>
+              {provider.note}
+              {provider.tag && <span class="tag mono">{provider.tag}</span>}
+            </dd>
+          </div>
+        ))
+      }
+    </dl>
+  </div>
+</section>
+
+<style>
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: clamp(2rem, 6vw, 4.5rem);
+    align-items: center;
+  }
+
+  .copy {
+    display: grid;
+    gap: 1.25rem;
+  }
+
+  .config {
+    margin: 0.25rem 0 0;
+    color: var(--fg-faint);
+    line-height: 1.9;
+  }
+
+  .providers {
+    margin: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1.5rem;
+    padding: 0.9rem 0.25rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .row dt {
+    color: var(--fg);
+    font-size: 0.875rem;
+    white-space: nowrap;
+  }
+
+  .row dd {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0;
+    color: var(--fg-muted);
+    font-size: 0.875rem;
+    text-align: right;
+  }
+
+  .tag {
+    padding: 0 0.45rem;
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+    border-radius: 999px;
+    color: var(--accent);
+    font-size: 0.68rem;
+  }
+
+  @media (max-width: 900px) {
+    .split {
+      grid-template-columns: 1fr;
+    }
+
+    .row {
+      flex-wrap: wrap;
+      gap: 0.25rem 1.5rem;
+    }
+
+    .row dd {
+      margin-left: auto;
+    }
+  }
+</style>

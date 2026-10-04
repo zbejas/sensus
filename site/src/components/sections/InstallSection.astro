@@ -1,0 +1,49 @@
+---
+import InstallCommand from "../InstallCommand.astro"
+---
+
+<section id="install" class="section">
+  <div class="wrap install" data-reveal-stagger>
+    <h2 class="h2">Install sensus.</h2>
+    <p class="body">
+      One line. The release binary is checksum-verified.
+    </p>
+    <div class="cmd">
+      <InstallCommand />
+    </div>
+    <p class="req mono">Linux or macOS · x86_64/aarch64 · works over SSH</p>
+    <p class="flags">
+      Pin a release with <code>--version v{__SENSUS_VERSION__}</code> · install system-wide with <code>-g</code> ·
+      <a href="/docs/development/">build from source</a>
+    </p>
+  </div>
+</section>
+
+<style>
+  .install {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    gap: 1.4rem;
+    text-align: center;
+  }
+
+  .install .body {
+    max-width: 56ch;
+  }
+
+  .cmd {
+    width: min(100%, 560px);
+    margin-top: 0.5rem;
+  }
+
+  .req {
+    color: var(--fg-muted);
+  }
+
+  .flags {
+    margin: 0;
+    color: var(--fg-faint);
+    font-size: 0.875rem;
+  }
+</style>

@@ -1,0 +1,169 @@
+---
+import Pane from "../Pane.astro"
+
+// The vim screen is authored HTML in one string: the braces in the code sample
+// would otherwise be parsed as Astro expressions.
+const vim = `
+  <div class="vline"><span class="ln">1</span><span><span class="kw">import</span> { createSignal } <span class="kw">from</span> <span class="str">"solid-js"</span></span></div>
+  <div class="vline"><span class="ln">2</span><span><span class="kw">import</span> { theme } <span class="kw">from</span> <span class="str">"./theme"</span></span></div>
+  <div class="vline"><span class="ln">3</span><span> </span></div>
+  <div class="vline"><span class="ln">4</span><span><span class="kw">export function</span> <span class="fn">StatusBar</span>() {</span></div>
+  <div class="vline"><span class="ln">5</span><span>  <span class="kw">const</span> [tab] = <span class="fn">createSignal</span>(<span class="num">0</span>)</span></div>
+  <div class="vline"><span class="ln">6</span><span>  <span class="kw">return</span> &lt;<span class="tag">text</span> <span class="attr">fg</span>=<span class="str">"{theme.accent}"</span>&gt;{tab()}&lt;/<span class="tag">text</span>&gt;</span></div>
+  <div class="vline"><span class="ln">7</span><span><span class="vcur">}</span></span></div>
+  <div class="vline"><span class="ln">~</span><span> </span></div>
+  <div class="vline"><span class="ln">~</span><span> </span></div>
+`
+---
+
+<section id="terminal" class="section">
+  <div class="wrap split">
+    <div class="copy" data-reveal-stagger>
+      <h2 class="h2">A real shell, not a simulation.</h2>
+      <p class="body">
+        The terminal pane is one real PTY per tab, rendered by an embedded VT (Ghostty).
+        <code>vim</code>, <code>htop</code>, colors, mouse, and scrollback behave like a real
+        terminal, because it is one.
+      </p>
+      <ul class="facts mono">
+        <li>one PTY per tab, per-tab sessions</li>
+        <li>full-color VT, mouse passthrough</li>
+        <li>scrollback, resize, works over SSH</li>
+      </ul>
+    </div>
+
+    <Pane
+      tabs={["1:vim", "2:htop", "3:zsh"]}
+      active={0}
+      label="A vim session inside the sensus terminal pane, with syntax colors and the inverse status line"
+      reveal
+    >
+      <div class="vim" set:html={vim} />
+      <div class="vstatus mono"><span>-- INSERT --</span><span>7,1&nbsp;&nbsp;All</span></div>
+    </Pane>
+  </div>
+</section>
+
+<style>
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    gap: clamp(2rem, 6vw, 4.5rem);
+    align-items: center;
+  }
+
+  .copy {
+    display: grid;
+    gap: 1.25rem;
+  }
+
+  .facts {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0.25rem 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--fg-muted);
+  }
+
+  .facts li::before {
+    content: "·";
+    margin-right: 0.6rem;
+    color: var(--fg-faint);
+  }
+
+  .vim {
+    min-height: 15.5em;
+  }
+
+  .vim :global(.vline) {
+    display: grid;
+    grid-template-columns: 2.2em 1fr;
+    white-space: pre;
+  }
+
+  .vim :global(.ln) {
+    color: var(--fg-faint);
+    text-align: right;
+    padding-right: 1em;
+    user-select: none;
+  }
+
+  .vim :global(.kw) {
+    color: var(--accent);
+  }
+
+  .vim :global(.str) {
+    color: var(--success);
+  }
+
+  .vim :global(.fn) {
+    color: var(--warning);
+  }
+
+  .vim :global(.tag) {
+    color: var(--danger);
+  }
+
+  .vim :global(.attr) {
+    color: var(--fg);
+  }
+
+  .vim :global(.num) {
+    color: var(--warning);
+  }
+
+  /* The insert-mode block cursor, blinking over the character the status line
+     says it is on (7,1): inverse when on, the plain glyph when off. */
+  .vim :global(.vcur) {
+    background: var(--fg);
+    color: var(--bg);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .vim :global(.vcur) {
+      animation: vim-blink 1.15s steps(1, end) infinite;
+    }
+  }
+
+  @keyframes vim-blink {
+    0%,
+    49% {
+      background: var(--fg);
+      color: var(--bg);
+    }
+    50%,
+    100% {
+      background: transparent;
+      color: var(--fg);
+    }
+  }
+
+  .vstatus {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0.75rem -1.15rem -1rem;
+    padding: 0.3rem 0.9rem;
+    background: var(--fg);
+    color: var(--bg);
+    white-space: nowrap;
+  }
+
+  @media (max-width: 640px) {
+    .vim {
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .vim::-webkit-scrollbar {
+      display: none;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .split {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

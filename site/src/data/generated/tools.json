@@ -1,0 +1,68 @@
+{
+  "tools": [
+    {
+      "name": "ask_user",
+      "summary": "Ask the user a question in chat and WAIT for their answer: the whole agent pauses until they reply."
+    },
+    {
+      "name": "edit_file",
+      "summary": "Replace one exact piece of text in a file with new content."
+    },
+    {
+      "name": "get_scrollback",
+      "summary": "Deep-capture the user's visible terminal scrollback (last N lines including the live screen) to see what happened there."
+    },
+    {
+      "name": "host_scan",
+      "summary": "Read-only discovery pass over this machine to draft its architecture map."
+    },
+    {
+      "name": "memory",
+      "summary": "Maintain your long-term memory."
+    },
+    {
+      "name": "read_file",
+      "summary": "Read a file (plain text, truncated to ~64k chars)."
+    },
+    {
+      "name": "reload",
+      "summary": "Re-read your configuration, custom instructions, agents, and skills from disk."
+    },
+    {
+      "name": "session_list",
+      "summary": "List PAST chat sessions (this user's earlier conversations with you), newest first: use it to see what was discussed and to pick a session to open with session_view."
+    },
+    {
+      "name": "session_search",
+      "summary": "Search PAST chat sessions (this user's earlier conversations with you) by content: useful when they reference something discussed before, or when checking whether a question/decision has come up already."
+    },
+    {
+      "name": "session_view",
+      "summary": "View the messages of one PAST chat session, in order (oldest first)."
+    },
+    {
+      "name": "shell_background",
+      "summary": "Run a shell command in a hidden background shell (NOT the user's visible terminal: the user sees NOTHING that happens here)."
+    },
+    {
+      "name": "shell_session",
+      "summary": "Type into the user's VISIBLE terminal: their live shell session, the pane they are looking at."
+    },
+    {
+      "name": "skill_view",
+      "summary": "Read a skill's full procedure by name (progressive disclosure)."
+    },
+    {
+      "name": "skills_list",
+      "summary": "List the available skills with their one-line descriptions."
+    },
+    {
+      "name": "view_image",
+      "summary": "Look at an image FILE on this machine (png, jpeg, webp, gif): screenshots, diagrams, photos."
+    },
+    {
+      "name": "write_file",
+      "summary": "Create or overwrite a file with content."
+    }
+  ]
+}

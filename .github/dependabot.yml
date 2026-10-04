@@ -1,0 +1,13 @@
+# Dependabot version updates. GitHub supports exactly one dependabot.yml.
+version: 2
+updates:
+  # Only GitHub Actions. The `bun` ecosystem is deliberately absent: this repo's
+  # `bun.lock` is lockfileVersion 2 (Bun >= 1.4), and Dependabot's bundled Bun
+  # updater only parses version 1, so every bun run fails with
+  # DependencyFileNotSupported. Re-add a `bun` entry once Dependabot supports v2.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5

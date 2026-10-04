@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="sensus">
+  <!-- The wordmark at icon size: lowercase s + the block cursor. The s is a
+       DejaVu Sans Mono Bold outline (the face og.svg renders with), 22px em,
+       centered against a padded 9.5x19 block cursor; no font dependency. -->
+  <rect width="32" height="32" rx="7" fill="#11151b"/>
+  <g transform="translate(3.495 22.005) scale(0.0107421875 -0.0107421875)">
+    <path d="M991 1085L991 829Q910 881 822.5 907.5Q735 934 647 934Q549 934 499 905.5Q449 877 449 821Q449 741 663 691L674 688L758 668Q918 630 992.5 545.5Q1067 461 1067 317Q1067 144 953.5 57.5Q840 -29 612 -29Q511 -29 405 -11.5Q299 6 190 41L190 297Q287 242 387.5 213Q488 184 582 184Q685 184 738 214Q791 244 791 301Q791 357 753.5 387Q716 417 575 451L494 469Q326 507 249 588Q172 669 172 805Q172 967 289 1057Q406 1147 618 1147Q713 1147 807.5 1131.5Q902 1116 991 1085Z" fill="#e9ecf2"/>
+  </g>
+  <rect x="17.157" y="6.5" width="9.5" height="19" rx="1" fill="#58c4d8"/>
+</svg>

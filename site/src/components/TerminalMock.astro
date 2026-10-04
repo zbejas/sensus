@@ -1,0 +1,1010 @@
+---
+// The hero mock: the app's real screens rebuilt in HTML/CSS, switchable with
+// CSS-only radios (no JS). `layout: "sidebar"` (default) is the vertical
+// `tabs` rail card, the focused `terminal ●` card, the `chat` card with its
+// nested `input` card, and the two-group status bar; `layout: "topbar"` drops
+// the rail and puts the same tab strip on row 0.
+//
+// The mock switches between three homelab sessions, one per tab (sshd
+// hardening, a crash-looping container, a full root disk). Every session has
+// the same shape: the pane runs the plain command a user would reach for
+// (`tail -f`, `compose logs -f`, `df -h`) and its noisy output, then the chat
+// shows the agent fetching what it needs in a hidden shell (`● done`),
+// summarizing, and proposing the gated fix. The mock's own tabs are the labels
+// for the hidden radios, so clicking `2:logs` in the rail or the tab strip
+// switches the session: an easter egg with no separate control. Switching
+// behaves like a real tab switch: the pane clears and the new session prints in
+// sequence, the active tab moves, and the status bar repaints. All of it is
+// `:has()` + radios, so it works without scripting; the print timing lives in
+// the `boot-in` visibility steps (no composited layers).
+//
+// Structure, labels, and glyphs mirror the actual components
+// (src/ui/components/{TabBar,TabRail,TerminalPane,ChatSidebar,StatusBar}.tsx,
+// src/ui/chat/chatLayout.ts); the session content is illustrative homelab work
+// on a normal user (`ops`), never repo development and never a root shell.
+//
+// On a narrow terminal the real app switches to its chat-only view (top tab
+// bar, chat full width, status bar kept); the mobile CSS below does the same
+// for both layouts.
+---
+
+<div class="mock-shell">
+  <div class="mock-tools">
+    <div class="mock-controls">
+      <div class="seg seg-layout" role="group" aria-label="Tab placement">
+        <input class="seg-input" type="radio" name="mock-view" id="mock-view-sidebar" checked />
+        <label class="seg-option" for="mock-view-sidebar">sidebar</label>
+        <input class="seg-input" type="radio" name="mock-view" id="mock-view-topbar" />
+        <label class="seg-option" for="mock-view-topbar">topbar</label>
+      </div>
+    </div>
+    <p class="mock-note mono">one pane is the terminal, the other is the agent chat</p>
+  </div>
+
+  <!-- The session switch is an easter egg: the mock's own tabs are the labels,
+       so clicking `2:logs` in the rail (or the tab strip) switches the session
+       with no separate control. -->
+  <div class="session-radios" role="radiogroup" aria-label="Session example">
+    <input
+      class="seg-input"
+      type="radio"
+      name="mock-example"
+      id="ex-sshd"
+      checked
+      aria-label="Session 1: sshd"
+    />
+    <input class="seg-input" type="radio" name="mock-example" id="ex-logs" aria-label="Session 2: logs" />
+    <input class="seg-input" type="radio" name="mock-example" id="ex-disk" aria-label="Session 3: disk" />
+  </div>
+
+  <figure
+    class="mock"
+    role="group"
+    aria-label="The sensus interface: a terminal pane with the agent chat sidebar, a tabs rail or top tab bar, and a status bar"
+  >
+    <div class="tui">
+    <!-- The horizontal tab strip: row 0 in `layout: "topbar"`, forced on in
+         the narrow chat-only view. The active tab follows the session radios. -->
+    <div class="topbar">
+      <label class="tab" data-tab="sshd" for="ex-sshd"
+        ><span class="marker">●&nbsp;</span>1:sshd<span class="close">&nbsp;×&nbsp;</span></label
+      >
+      <span class="tab-sep">│&nbsp;</span>
+      <label class="tab" data-tab="logs" for="ex-logs"
+        ><span class="marker">●&nbsp;</span>2:logs<span class="close">&nbsp;×&nbsp;</span></label
+      >
+      <span class="tab-sep">│&nbsp;</span>
+      <label class="tab" data-tab="disk" for="ex-disk"
+        ><span class="marker">●&nbsp;</span>3:disk<span class="close">&nbsp;×&nbsp;</span></label
+      >
+      <span class="newtab">&nbsp;+ new tab</span>
+      <span class="spacer"></span>
+      <span class="menu"><span class="label">?</span> <span class="value">commands</span></span>
+    </div>
+
+    <div class="card rail">
+      <span class="card-title">tabs</span>
+      <label class="rail-row" data-tab="sshd" for="ex-sshd">
+        <span class="marker">●</span><span class="idx">1:</span><span class="title">sshd</span
+        ><span class="close">&nbsp;×&nbsp;</span>
+      </label>
+      <label class="rail-row" data-tab="logs" for="ex-logs">
+        <span class="marker">●</span><span class="idx">2:</span><span class="title">logs</span><span
+          class="close">&nbsp;×&nbsp;</span
+        >
+      </label>
+      <label class="rail-row" data-tab="disk" for="ex-disk">
+        <span class="marker">●</span><span class="idx">3:</span><span class="title">disk</span><span
+          class="close">&nbsp;×&nbsp;</span
+        >
+      </label>
+      <div class="rail-pinned">
+        <div class="rail-row action"><span class="label">+ new tab</span></div>
+        <div class="rail-row action"><span class="label">?&nbsp;</span><span class="value">commands</span></div>
+      </div>
+    </div>
+
+    <div class="card pane focused">
+      <span class="card-title">terminal ●</span>
+      <div class="pane-body">
+        <div class="term ex ex-sshd">
+          <div class="line">
+            <span class="prompt">ops@homelab:~$</span> <span>sudo tail -f /var/log/auth.log</span>
+          </div>
+          <div class="line out">sshd[812]: Failed password for root from 203.0.113.7</div>
+          <div class="line out">sshd[812]: Failed password for invalid user admin</div>
+          <div class="line out">sshd[812]: Failed password for root from 203.0.113.7</div>
+          <div class="line out">sshd[812]: Failed password for invalid user oracle</div>
+          <div class="line out">sshd[812]: Failed password for root from 203.0.113.7</div>
+          <div class="line out">sshd[812]: Failed password for invalid user postgres</div>
+          <div class="line hl">sshd[812]: error: maximum authentication attempts exceeded</div>
+          <div class="line out">sshd[812]: Failed password for root from 203.0.113.7</div>
+          <div class="line out">sshd[812]: Failed password for invalid user ubuntu</div>
+          <div class="line out">sshd[812]: Failed password for root from 203.0.113.7</div>
+          <div class="line out">^C</div>
+          <div class="line">
+            <span class="prompt">ops@homelab:~$</span> <span class="caret" aria-hidden="true"></span>
+          </div>
+        </div>
+        <div class="term ex ex-logs">
+          <div class="line">
+            <span class="prompt">ops@homelab:~$</span> <span>docker compose logs -f web</span>
+          </div>
+          <div class="line out">web  | Error: connect ECONNREFUSED 172.18.0.4:5432</div>
+          <div class="line out">web  |     at TCPConnectWrap.afterConnect</div>
+          <div class="line bad">web exited with code 1</div>
+          <div class="line out">web  | Error: connect ECONNREFUSED 172.18.0.4:5432</div>
+          <div class="line out">web  |     at TCPConnectWrap.afterConnect</div>
+          <div class="line bad">web exited with code 1</div>
+          <div class="line out">web  | Error: connect ECONNREFUSED 172.18.0.4:5432</div>
+          <div class="line out">web  |     at TCPConnectWrap.afterConnect</div>
+          <div class="line bad">web exited with code 1</div>
+          <div class="line out">^C</div>
+          <div class="line">
+            <span class="prompt">ops@homelab:~$</span> <span class="caret" aria-hidden="true"></span>
+          </div>
+        </div>
+        <div class="term ex ex-disk">
+          <div class="line"><span class="prompt">ops@homelab:~$</span> <span>df -h</span></div>
+          <div class="line out">Filesystem      Size  Used Avail Use% Mounted on</div>
+          <div class="line out">/dev/sda2        98G   91G  2.4G  98% /</div>
+          <div class="line out">kernel: EXT4-fs warning (sda2): Directory index full!</div>
+          <div class="line hl">dockerd[901]: register layer: no space left on device</div>
+          <div class="line bad">postgres[1204]: PANIC: could not write pg_wal</div>
+          <div class="line out">kernel: EXT4-fs warning (sda2): Directory index full!</div>
+          <div class="line hl">dockerd[901]: register layer: no space left on device</div>
+          <div class="line bad">postgres[1204]: FATAL: could not write pg_wal</div>
+          <div class="line out">kernel: EXT4-fs warning (sda2): Directory index full!</div>
+          <div class="line hl">dockerd[901]: register layer: no space left on device</div>
+          <div class="line">
+            <span class="prompt">ops@homelab:~$</span> <span class="caret" aria-hidden="true"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card chat">
+      <span class="card-title">chat</span>
+      <div class="chat-body">
+        <div class="chat-log ex ex-sshd">
+          <div class="panel user">
+            <div class="msg-label">
+              <span class="you">❯ you</span><span class="afford">⧉ copy&nbsp;&nbsp;↺ revert</span>
+            </div>
+            <div class="msg-body">ssh keeps getting hammered</div>
+          </div>
+          <div class="panel tool">
+            <div class="tool-head">▸ shell_background</div>
+            <div class="tool-detail">  sudo fail2ban-client status sshd</div>
+            <div class="tool-detail">  sudo sshd -T | grep -i permitrootlogin</div>
+            <div class="tool-status">  ● done</div>
+          </div>
+          <div class="panel assistant">
+            <div class="msg-label"><span class="who">✱ copilot</span><span class="afford">⧉ copy</span></div>
+            <div class="msg-body">
+              fail2ban shows 47 failures from 203.0.113.7 in the last minute, root included. sshd still
+              allows password auth and root logins, so the next run can get in.
+            </div>
+          </div>
+          <div class="panel tool">
+            <div class="tool-head">▸ shell_background</div>
+            <div class="tool-detail">  sudo tee /etc/ssh/sshd_config.d/hardening.conf &lt;&lt;'EOF'</div>
+            <div class="tool-detail">  PermitRootLogin prohibit-password</div>
+            <div class="tool-detail">  PasswordAuthentication no</div>
+            <div class="tool-detail">  EOF</div>
+            <div class="tool-status">  <span class="wait" data-pulse>○</span> awaiting approval</div>
+            <div class="tool-action">  [y accept]</div>
+            <div class="tool-action">  [n reject]</div>
+          </div>
+        </div>
+        <div class="chat-log ex ex-logs">
+          <div class="panel user">
+            <div class="msg-label">
+              <span class="you">❯ you</span><span class="afford">⧉ copy&nbsp;&nbsp;↺ revert</span>
+            </div>
+            <div class="msg-body">web keeps restarting</div>
+          </div>
+          <div class="panel tool">
+            <div class="tool-head">▸ shell_background</div>
+            <div class="tool-detail">  docker compose ps web</div>
+            <div class="tool-detail">  cat .env</div>
+            <div class="tool-status">  ● done</div>
+          </div>
+          <div class="panel assistant">
+            <div class="msg-label"><span class="who">✱ copilot</span><span class="afford">⧉ copy</span></div>
+            <div class="msg-body">
+              .env still points web at 172.18.0.4, but db now answers on the compose network as db. web has
+              restarted 34 times and never gets past startup.
+            </div>
+          </div>
+          <div class="panel tool">
+            <div class="tool-head">▸ shell_background</div>
+            <div class="tool-detail">  sed -i 's/^DB_HOST=.*/DB_HOST=db/' .env</div>
+            <div class="tool-detail">  docker compose up -d --force-recreate web</div>
+            <div class="tool-detail">  docker compose ps web</div>
+            <div class="tool-detail">  docker logs --tail 1 web</div>
+            <div class="tool-status">  <span class="wait" data-pulse>○</span> awaiting approval</div>
+            <div class="tool-action">  [y accept]</div>
+            <div class="tool-action">  [n reject]</div>
+          </div>
+        </div>
+        <div class="chat-log ex ex-disk">
+          <div class="panel user">
+            <div class="msg-label">
+              <span class="you">❯ you</span><span class="afford">⧉ copy&nbsp;&nbsp;↺ revert</span>
+            </div>
+            <div class="msg-body">no space left on device</div>
+          </div>
+          <div class="panel tool">
+            <div class="tool-head">▸ shell_background</div>
+            <div class="tool-detail">  sudo du -sh /var/lib/docker /var/log</div>
+            <div class="tool-detail">  docker system df</div>
+            <div class="tool-status">  ● done</div>
+          </div>
+          <div class="panel assistant">
+            <div class="msg-label"><span class="who">✱ copilot</span><span class="afford">⧉ copy</span></div>
+            <div class="msg-body">
+              Docker is 41G of the 91G used: build cache and dangling images. The journal is 3.2G more.
+              Nothing running needs the cache, so it can go without a restart.
+            </div>
+          </div>
+          <div class="panel tool">
+            <div class="tool-head">▸ shell_background</div>
+            <div class="tool-detail">  sudo docker system prune -af</div>
+            <div class="tool-detail">  sudo journalctl --vacuum-size=500M</div>
+            <div class="tool-detail">  df -h /</div>
+            <div class="tool-detail">  du -sh /var/lib/docker /var/log</div>
+            <div class="tool-status">  <span class="wait" data-pulse>○</span> awaiting approval</div>
+            <div class="tool-action">  [y accept]</div>
+            <div class="tool-action">  [n reject]</div>
+          </div>
+        </div>
+        <div class="agent-chip boot" style="--d: 0.44s"> agent:copilot ⇄ </div>
+        <div class="card input boot" style="--d: 0.5s">
+          <span class="card-title">input</span>
+          <div class="input-row"> ask the agent… (Enter sends · Shift+Enter newline)</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="statusbar">
+      <div class="sb ex ex-sshd">
+        <span class="chip"><span class="label">tab </span><span class="value">1/3: sshd</span></span>
+        <span class="chip s-cwd"><span class="sep">·&nbsp;</span><span class="label">cwd: </span><span class="value"
+            >/home/ops</span
+          ></span>
+        <span class="spacer"></span>
+        <span class="chip s-model"><span class="sep">·&nbsp;</span><span class="label">ollama@</span><span
+            class="value">deepseek-v4.1-flash</span
+          ></span>
+        <span class="chip s-context"><span class="sep">·&nbsp;</span><span class="label">24k/1M</span></span>
+        <span class="chip s-agent"><span class="sep">·&nbsp;</span><span class="accent">✱ </span><span class="value"
+            >agent:copilot</span
+          ></span>
+        <span class="chip s-confirm"><span class="sep">·&nbsp;</span><span class="value">confirm</span></span>
+      </div>
+      <div class="sb ex ex-logs">
+        <span class="chip"><span class="label">tab </span><span class="value">2/3: logs</span></span>
+        <span class="chip s-cwd"><span class="sep">·&nbsp;</span><span class="label">cwd: </span><span class="value"
+            >/home/ops/app</span
+          ></span>
+        <span class="spacer"></span>
+        <span class="chip s-model"><span class="sep">·&nbsp;</span><span class="label">ollama@</span><span
+            class="value">deepseek-v4.1-flash</span
+          ></span>
+        <span class="chip s-context"><span class="sep">·&nbsp;</span><span class="label">31k/1M</span></span>
+        <span class="chip s-agent"><span class="sep">·&nbsp;</span><span class="accent">✱ </span><span class="value"
+            >agent:copilot</span
+          ></span>
+        <span class="chip s-confirm"><span class="sep">·&nbsp;</span><span class="value">confirm</span></span>
+      </div>
+      <div class="sb ex ex-disk">
+        <span class="chip"><span class="label">tab </span><span class="value">3/3: disk</span></span>
+        <span class="chip s-cwd"><span class="sep">·&nbsp;</span><span class="label">cwd: </span><span class="value"
+            >/home/ops</span
+          ></span>
+        <span class="spacer"></span>
+        <span class="chip s-model"><span class="sep">·&nbsp;</span><span class="label">ollama@</span><span
+            class="value">deepseek-v4.1-flash</span
+          ></span>
+        <span class="chip s-context"><span class="sep">·&nbsp;</span><span class="label">18k/1M</span></span>
+        <span class="chip s-agent"><span class="sep">·&nbsp;</span><span class="accent">✱ </span><span class="value"
+            >agent:copilot</span
+          ></span>
+        <span class="chip s-confirm"><span class="sep">·&nbsp;</span><span class="value">confirm</span></span>
+      </div>
+    </div>
+    </div>
+  </figure>
+</div>
+
+<style>
+  .mock-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.85rem;
+  }
+
+  .mock-tools {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .mock-controls {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  /* The segmented controls: CSS-only radios (no JS) in the app's own language,
+     bar surface, mono labels, accent on the active option. */
+  .seg {
+    position: relative;
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0.2rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-bar);
+  }
+
+  .seg-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .seg-option {
+    padding: 0.3rem 0.9rem;
+    border-radius: 999px;
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+      color 0.15s ease,
+      background 0.15s ease;
+  }
+
+  .seg-option:hover {
+    color: var(--fg);
+  }
+
+  .seg-input:checked + .seg-option {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .seg-input:focus-visible + .seg-option {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  .mock-note {
+    margin: 0;
+    min-width: 0;
+    color: var(--fg-faint);
+    font-size: 0.72rem;
+    line-height: 1.65;
+    text-align: right;
+  }
+
+  .mock {
+    margin: 0;
+  }
+
+  .tui {
+    display: grid;
+    grid-template-columns: minmax(0, 0.5fr) minmax(0, 1.2fr) minmax(0, 1.05fr);
+    grid-template-rows: auto auto;
+    column-gap: 0.55rem;
+    row-gap: 0.55rem;
+  }
+
+  /* `layout: "topbar"`: the rail track collapses to zero and the tab strip
+     takes row 0. The track count stays equal on both sides so the columns can
+     interpolate instead of snapping. */
+  .mock-shell:has(#mock-view-topbar:checked) .tui {
+    grid-template-columns: minmax(0, 0fr) minmax(0, 1.2fr) minmax(0, 1.05fr);
+    grid-template-rows: auto auto auto;
+    column-gap: 0;
+  }
+
+  .mock-shell:has(#mock-view-topbar:checked) .topbar {
+    display: flex;
+  }
+
+  .topbar {
+    display: none;
+  }
+
+  /* ---- switching: layout continuity and the per-session print ---- */
+
+  @media (prefers-reduced-motion: no-preference) {
+    .tui {
+      transition:
+        grid-template-columns 0.32s var(--ease-out),
+        column-gap 0.32s var(--ease-out);
+    }
+
+    .rail {
+      transition: opacity 0.24s var(--ease-out);
+    }
+
+    /* The tab strip fades in and out where discrete display transitions are
+       supported; elsewhere it just appears, which is the old behavior. */
+    @supports (transition-behavior: allow-discrete) {
+      .topbar {
+        opacity: 0;
+        transition:
+          opacity 0.24s var(--ease-out),
+          display 0.24s allow-discrete;
+      }
+
+      .mock-shell:has(#mock-view-topbar:checked) .topbar {
+        opacity: 1;
+      }
+
+      @starting-style {
+        .mock-shell:has(#mock-view-topbar:checked) .topbar {
+          opacity: 0;
+        }
+      }
+    }
+
+    /* The chat assembles and the status bar repaints left to right; the pane
+       itself prints instantly (its lines stay unanimated: a line-level
+       entrance leaves composited layers that large captures drop). Showing a
+       session again replays the chat and the status bar from the top. */
+    .chat-log > .panel {
+      animation: boot-in 1ms linear both;
+      animation-delay: var(--d, 0s);
+    }
+
+    .sb .chip {
+      animation: boot-in 1ms linear both;
+      animation-delay: var(--d, 0s);
+    }
+  }
+
+  .chat-log > .panel:nth-child(1) {
+    --d: 0.06s;
+  }
+  .chat-log > .panel:nth-child(2) {
+    --d: 0.18s;
+  }
+  .chat-log > .panel:nth-child(3) {
+    --d: 0.32s;
+  }
+
+  .sb .chip:nth-child(1) {
+    --d: 0.04s;
+  }
+  .sb .chip:nth-child(2) {
+    --d: 0.07s;
+  }
+  .sb .chip:nth-child(4) {
+    --d: 0.1s;
+  }
+  .sb .chip:nth-child(5) {
+    --d: 0.13s;
+  }
+  .sb .chip:nth-child(6) {
+    --d: 0.16s;
+  }
+  .sb .chip:nth-child(7) {
+    --d: 0.19s;
+  }
+
+  /* ---- session examples: radios swap the pane, the chat, and the status ---- */
+
+  .mock-shell .ex {
+    display: none;
+  }
+
+  .term.ex {
+    flex-direction: column;
+  }
+
+  .mock-shell:has(#ex-sshd:checked) .ex-sshd,
+  .mock-shell:has(#ex-logs:checked) .ex-logs,
+  .mock-shell:has(#ex-disk:checked) .ex-disk {
+    display: flex;
+  }
+
+  /* The rail clips only while it collapses; in the sidebar layout the card
+     title sits above the border and must not be cut. */
+  .mock-shell:has(#mock-view-topbar:checked) .rail {
+    overflow: hidden;
+    opacity: 0;
+  }
+
+  /* The mock's own tabs are the session switch: labels for the hidden radios.
+     Hover and focus make the easter egg discoverable without a hint. */
+  .rail-row[data-tab],
+  .tab[data-tab] {
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .rail-row[data-tab] {
+    border-radius: 5px;
+  }
+
+  .rail-row[data-tab]:hover {
+    background: color-mix(in srgb, var(--fg) 7%, transparent);
+  }
+
+  .topbar .tab[data-tab] {
+    padding: 0 0.2rem;
+    margin: 0 -0.2rem;
+    border-radius: 4px;
+  }
+
+  .topbar .tab[data-tab]:hover {
+    background: color-mix(in srgb, var(--fg) 7%, transparent);
+  }
+
+  .mock-shell:has(#ex-sshd:focus-visible) [data-tab="sshd"],
+  .mock-shell:has(#ex-logs:focus-visible) [data-tab="logs"],
+  .mock-shell:has(#ex-disk:focus-visible) [data-tab="disk"] {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* The active tab marker follows the session radios. Inactive markers stay
+     in the layout, just transparent, so nothing reflows when it moves. */
+  .tab .marker,
+  .rail-row .marker {
+    color: transparent;
+  }
+
+  .mock-shell:has(#ex-sshd:checked) [data-tab="sshd"],
+  .mock-shell:has(#ex-logs:checked) [data-tab="logs"],
+  .mock-shell:has(#ex-disk:checked) [data-tab="disk"] {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .mock-shell:has(#ex-sshd:checked) [data-tab="sshd"] .marker,
+  .mock-shell:has(#ex-logs:checked) [data-tab="logs"] .marker,
+  .mock-shell:has(#ex-disk:checked) [data-tab="disk"] .marker,
+  .mock-shell:has(#ex-sshd:checked) [data-tab="sshd"] .idx,
+  .mock-shell:has(#ex-logs:checked) [data-tab="logs"] .idx,
+  .mock-shell:has(#ex-disk:checked) [data-tab="disk"] .idx,
+  .mock-shell:has(#ex-sshd:checked) [data-tab="sshd"] .title,
+  .mock-shell:has(#ex-logs:checked) [data-tab="logs"] .title,
+  .mock-shell:has(#ex-disk:checked) [data-tab="disk"] .title {
+    color: var(--accent);
+  }
+
+  /* ---- cards: rounded like the TUI's border glyphs (╭ ╮ ╰ ╯), titled on
+     the border, transparent chrome. The radius is one terminal cell's arc
+     (~5px), not a large smooth curve. ---- */
+
+  .card {
+    position: relative;
+    min-width: 0;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: transparent;
+  }
+
+  .card-title {
+    position: absolute;
+    top: -0.62em;
+    left: 0.7em;
+    padding: 0 0.45em;
+    background: var(--bg);
+    font-size: 0.7rem;
+    line-height: 1.25;
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+
+  .card.focused {
+    border-color: var(--accent);
+  }
+
+  .card.focused > .card-title {
+    color: var(--accent);
+  }
+
+  /* ---- tabs rail ---- */
+
+  .rail {
+    display: flex;
+    flex-direction: column;
+    padding: 0.7rem 0.55rem 0.55rem;
+    font-size: 0.75rem;
+  }
+
+  .rail-row {
+    display: flex;
+    align-items: center;
+    height: 1.65em;
+    white-space: pre;
+  }
+
+  .rail-row .marker {
+    width: 2ch;
+    flex: none;
+  }
+
+  .rail-row .idx,
+  .rail-row .title {
+    color: var(--fg);
+  }
+
+  .rail-row .close {
+    margin-left: auto;
+    color: var(--fg-muted);
+  }
+
+  .rail-pinned {
+    margin-top: auto;
+  }
+
+  .rail-row.action .label {
+    color: var(--fg-muted);
+  }
+
+  .rail-row.action .value {
+    color: var(--fg);
+  }
+
+  /* ---- terminal pane ---- */
+
+  .pane {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Content clips here, not on the card, so the border title stays visible. */
+  .pane-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0.9rem 1rem;
+    overflow: hidden;
+  }
+
+  .term {
+    font-size: 0.78rem;
+    line-height: 1.72;
+    min-width: 0;
+  }
+
+  .term .line {
+    white-space: pre;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .term .prompt {
+    color: var(--success);
+  }
+
+  .term .out {
+    color: var(--fg-muted);
+  }
+
+  .term .hl {
+    color: var(--warning);
+  }
+
+  .term .bad {
+    color: var(--danger);
+  }
+
+  .term .caret {
+    display: inline-block;
+    width: 0.55em;
+    height: 1.05em;
+    vertical-align: -0.16em;
+    background: var(--accent);
+    animation: blink 1.15s steps(2, start) infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .term .caret {
+      animation: none;
+    }
+  }
+
+  /* ---- chat sidebar ---- */
+
+  .chat {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .chat-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0.75rem 0.7rem 0.6rem;
+    overflow: hidden;
+  }
+
+  .chat-log {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    min-width: 0;
+  }
+
+  /* Between the narrow chat-only view and ~1000px the three sessions wrap to
+     different heights; this floor keeps the mock from jumping when the
+     session switches. */
+  @media (min-width: 761px) and (max-width: 1000px) {
+    .chat-log {
+      min-height: 32rem;
+    }
+  }
+
+  /* The TUI's fill cards are not rounded: the panel is a solid surface with a
+     half-cell notch cut from each corner (the quadrant block glyphs
+     ▟ ▙ ▜ ▛, docs/DESIGN.md "Chat sidebar"). Mirror the step, not an arc. */
+  .panel {
+    --notch-x: 4px;
+    --notch-y: 7px;
+    min-width: 0;
+    padding: 0.45rem 0.6rem;
+    background: var(--bg-card);
+    clip-path: polygon(
+      var(--notch-x) 0,
+      calc(100% - var(--notch-x)) 0,
+      calc(100% - var(--notch-x)) var(--notch-y),
+      100% var(--notch-y),
+      100% calc(100% - var(--notch-y)),
+      calc(100% - var(--notch-x)) calc(100% - var(--notch-y)),
+      calc(100% - var(--notch-x)) 100%,
+      var(--notch-x) 100%,
+      var(--notch-x) calc(100% - var(--notch-y)),
+      0 calc(100% - var(--notch-y)),
+      0 var(--notch-y),
+      var(--notch-x) var(--notch-y)
+    );
+  }
+
+  .panel.user {
+    align-self: flex-end;
+    max-width: 88%;
+  }
+
+  .panel.assistant,
+  .panel.tool {
+    align-self: stretch;
+  }
+
+  .msg-label {
+    display: flex;
+    align-items: baseline;
+    gap: 0.55rem;
+    margin-bottom: 0.1rem;
+    font-size: 0.7rem;
+    white-space: nowrap;
+  }
+
+  .msg-label .you {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .msg-label .who {
+    color: var(--fg-muted);
+  }
+
+  .msg-label .afford {
+    color: var(--fg-faint);
+    font-size: 0.66rem;
+  }
+
+  .msg-body {
+    font-size: 0.78rem;
+    line-height: 1.45;
+    color: var(--fg);
+    text-wrap: pretty;
+  }
+
+  .tool-head {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tool-detail {
+    font-size: 0.75rem;
+    color: var(--fg);
+    white-space: pre-wrap;
+  }
+
+  .tool-status,
+  .tool-action {
+    font-size: 0.75rem;
+    white-space: pre;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .tool-status {
+    color: var(--fg);
+  }
+
+  .tool-action {
+    color: var(--accent);
+  }
+
+  .agent-chip {
+    padding: 0.45rem 0.15rem 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--accent);
+    white-space: pre;
+  }
+
+  .input {
+    padding: 0.5rem 0.7rem;
+  }
+
+  .input-row {
+    font-size: 0.75rem;
+    color: var(--fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ---- status bar (and the mobile top bar) ---- */
+
+  .statusbar,
+  .topbar {
+    align-items: center;
+    height: 1.9rem;
+    padding: 0 0.6rem;
+    background: var(--bg-bar);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .statusbar {
+    display: flex;
+    grid-column: 1 / -1;
+    gap: 0;
+  }
+
+  .sb {
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .topbar {
+    display: none;
+    grid-column: 1 / -1;
+  }
+
+  .statusbar .label,
+  .topbar .label {
+    color: var(--fg-muted);
+  }
+
+  .statusbar .value,
+  .topbar .value {
+    color: var(--fg);
+  }
+
+  .statusbar .sep {
+    color: var(--fg-faint);
+  }
+
+  .statusbar .accent,
+  .topbar .accent {
+    color: var(--accent);
+  }
+
+  /* Tab-strip language (docs/DESIGN.md "Tab bar"), shared by the desktop
+     `layout: "topbar"` row 0 and the narrow chat-only view: the active tab
+     carries the accent + bold, inactive tabs read neutral, and the close /
+     separator / ` + new tab ` chrome stays muted. */
+  .topbar .tab {
+    color: var(--fg);
+  }
+
+  .topbar .tab .close,
+  .topbar .tab-sep,
+  .topbar .newtab {
+    color: var(--fg-muted);
+  }
+
+  .spacer {
+    flex: 1;
+  }
+
+  /* ---- narrow terminals: the real chat-only view ---- */
+
+  @media (max-width: 760px) {
+    .mock-tools {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.55rem;
+    }
+
+    /* Both layouts resolve to the real chat-only view here, so the layout
+       switch has nothing to switch. The session switch stays: it drives the
+       top bar, the chat, and the status bar in this view. */
+    .seg-layout {
+      display: none;
+    }
+
+    .mock-note {
+      text-align: center;
+    }
+
+    .tui {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .topbar {
+      display: flex;
+      order: 0;
+    }
+
+    /* The mobile top bar is always on screen; never leave it faded. */
+    .mock-shell .topbar {
+      opacity: 1;
+    }
+
+    .rail,
+    .pane {
+      display: none;
+    }
+
+    .chat {
+      order: 1;
+    }
+
+    .statusbar {
+      order: 2;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .s-cwd,
+    .s-model,
+    .s-context,
+    .s-agent {
+      display: none;
+    }
+
+    .s-confirm .sep {
+      display: none;
+    }
+  }
+</style>

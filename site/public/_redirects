@@ -1,0 +1,3 @@
+# www.sensus.sh -> sensus.sh is a Cloudflare Bulk Redirect (Rules -> Bulk
+# Redirects): _redirects only supports path-based sources, so a domain-level
+# rule here would be silently skipped. See README.md "Cloudflare Pages".

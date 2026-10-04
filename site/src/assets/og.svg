@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Source for public/og.png. Rendered by scripts/og.ts (sharp); regenerate
+  with `bun run og` from site/. The palette is the site's custom ink theme.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#11151b"/>
+
+  <!-- wordmark: prompt glyph + name + block cursor -->
+  <text x="80" y="104" font-family="DejaVu Sans Mono" font-size="34" font-weight="bold" fill="#58c4d8">❯</text>
+  <text x="120" y="104" font-family="DejaVu Sans Mono" font-size="30" font-weight="bold" fill="#e9ecf2">sensus</text>
+  <rect x="247" y="80" width="16" height="28" fill="#58c4d8"/>
+
+  <text x="1120" y="104" text-anchor="end" font-family="DejaVu Sans Mono" font-size="22" fill="#7e8896">sensus.sh</text>
+
+  <!-- headline -->
+  <text x="80" y="310" font-family="DejaVu Sans" font-size="68" font-weight="bold" fill="#e9ecf2">A terminal you live in.</text>
+  <text x="80" y="366" font-family="DejaVu Sans" font-size="30" fill="#9ba4b2">A real shell. An agent that can drive it.</text>
+
+  <!-- install command -->
+  <rect x="80" y="432" width="1040" height="86" rx="12" fill="#1a1f27" stroke="#2b323d"/>
+  <text x="116" y="485" font-family="DejaVu Sans Mono" font-size="26" fill="#82d09b">$</text>
+  <text x="150" y="485" font-family="DejaVu Sans Mono" font-size="26" fill="#e9ecf2">curl -fsSL https://sensus.sh/install | bash</text>
+
+  <!-- bottom rule -->
+  <rect x="80" y="566" width="1040" height="1" fill="#20262f"/>
+  <text x="80" y="602" font-family="DejaVu Sans Mono" font-size="20" fill="#7e8896">local-first · no accounts · no telemetry</text>
+</svg>

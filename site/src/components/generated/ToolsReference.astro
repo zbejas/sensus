@@ -1,0 +1,38 @@
+---
+import tools from "../../data/generated/tools.json"
+---
+
+<section class="ref" aria-label="Tools reference">
+  <div class="ref-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Tool</th>
+          <th>What it does</th>
+        </tr>
+      </thead>
+      <tbody>
+        {
+          tools.tools.map((row) => (
+            <tr>
+              <td class="ref-name">
+                <code>{row.name}</code>
+              </td>
+              <td>{row.summary}</td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<style>
+  .ref-scroll {
+    overflow-x: auto;
+  }
+
+  .ref-name {
+    white-space: nowrap;
+  }
+</style>

@@ -1,0 +1,891 @@
+---
+import Base from "./Base.astro"
+import Nav from "../components/Nav.astro"
+import Footer from "../components/Footer.astro"
+import manifest from "../data/docs-manifest.json"
+
+interface TocEntry {
+  depth: number
+  slug: string
+  text: string
+}
+
+interface PageLink {
+  slug: string
+  title: string
+}
+
+interface Props {
+  title: string
+  description?: string
+  currentSlug?: string | null
+  headings?: TocEntry[]
+  prev?: PageLink | null
+  next?: PageLink | null
+}
+
+const {
+  title,
+  description,
+  currentSlug = null,
+  headings = [],
+  prev = null,
+  next = null,
+} = Astro.props
+
+const entries = [...manifest.docs].sort((a, b) => a.order - b.order)
+const toc = headings.filter((heading) => heading.depth === 2 || heading.depth === 3)
+---
+
+<Base title={`${title} · sensus`} description={description}>
+  <Nav />
+
+  <div class="docs" data-docs>
+    <div class="docs-backdrop" data-docs-backdrop hidden></div>
+
+    <div class="docs-bar">
+      <div class="wrap docs-bar-inner">
+        <button
+          class="docs-toggle"
+          type="button"
+          data-docs-toggle
+          aria-expanded="false"
+          aria-controls="docs-nav"
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path
+              d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"></path>
+          </svg>
+          Contents
+        </button>
+        <span class="docs-bar-title">{title}</span>
+      </div>
+    </div>
+
+    <div class="wrap docs-grid">
+      <aside class="docs-side" id="docs-nav" data-docs-side aria-label="Manual">
+        <div class="docs-side-head">
+          <span class="docs-side-label">Manual</span>
+          <button class="docs-close" type="button" data-docs-close aria-label="Close contents">
+            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+              <path
+                d="M4 4l8 8M12 4l-8 8"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"></path>
+            </svg>
+          </button>
+        </div>
+        <nav class="docs-nav">
+          <ol>
+            <li>
+              <a
+                class:list={["docs-link", { active: currentSlug === null }]}
+                href="/docs/"
+                aria-current={currentSlug === null ? "page" : undefined}>Overview</a
+              >
+            </li>
+            {
+              entries.map((entry) => (
+                <li>
+                  <a
+                    class:list={["docs-link", { active: currentSlug === entry.slug }]}
+                    href={`/docs/${entry.slug}/`}
+                    aria-current={currentSlug === entry.slug ? "page" : undefined}
+                  >
+                    {entry.title}
+                  </a>
+                </li>
+              ))
+            }
+          </ol>
+        </nav>
+        <p class="docs-contrib">
+          <a
+            href="https://github.com/zbejas/sensus/tree/main/docs"
+            target="_blank"
+            rel="noopener noreferrer">For contributors</a
+          >
+        </p>
+      </aside>
+
+      <main class="docs-main">
+        <header class="docs-head">
+          <h1>{title}</h1>
+          {description && <p class="docs-desc">{description}</p>}
+        </header>
+
+        {
+          toc.length > 0 && (
+            <details class="docs-toc-mobile">
+              <summary>On this page</summary>
+              <ol>
+                {toc.map((heading) => (
+                  <li class:list={[{ sub: heading.depth === 3 }]}>
+                    <a href={`#${heading.slug}`}>{heading.text}</a>
+                  </li>
+                ))}
+              </ol>
+            </details>
+          )
+        }
+
+        <article class="prose">
+          <slot />
+          <slot name="generated" />
+        </article>
+
+        {
+          (prev || next) && (
+            <nav class="docs-pager" aria-label="Manual pages">
+              {prev ? (
+                <a class="docs-pager-link prev" href={`/docs/${prev.slug}/`}>
+                  <span>Previous</span>
+                  <strong>{prev.title}</strong>
+                </a>
+              ) : (
+                <span class="docs-pager-gap" aria-hidden="true" />
+              )}
+              {next ? (
+                <a class="docs-pager-link next" href={`/docs/${next.slug}/`}>
+                  <span>Next</span>
+                  <strong>{next.title}</strong>
+                </a>
+              ) : (
+                <span class="docs-pager-gap" aria-hidden="true" />
+              )}
+            </nav>
+          )
+        }
+      </main>
+
+      {
+        toc.length > 0 && (
+          <aside class="docs-toc" aria-label="On this page">
+            <p class="docs-side-label">On this page</p>
+            <nav>
+              <ol>
+                {toc.map((heading) => (
+                  <li class:list={[{ sub: heading.depth === 3 }]}>
+                    <a href={`#${heading.slug}`}>{heading.text}</a>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          </aside>
+        )
+      }
+    </div>
+  </div>
+
+  <Footer />
+
+  <script is:inline>
+    ;(function () {
+      var root = document.querySelector("[data-docs]")
+      if (!root) return
+      var side = root.querySelector("[data-docs-side]")
+      var toggle = root.querySelector("[data-docs-toggle]")
+      var closeBtn = root.querySelector("[data-docs-close]")
+      var backdrop = root.querySelector("[data-docs-backdrop]")
+      if (!side || !toggle || !backdrop) return
+      var desktop = window.matchMedia("(min-width: 1024px)")
+      var open = false
+
+      function focusables() {
+        return side.querySelectorAll("a[href], button:not([disabled])")
+      }
+
+      function setOpen(nextOpen) {
+        open = nextOpen
+        root.classList.toggle("is-open", open)
+        toggle.setAttribute("aria-expanded", open ? "true" : "false")
+        backdrop.hidden = !open
+        document.body.style.overflow = open && !desktop.matches ? "hidden" : ""
+        if (desktop.matches || open) side.removeAttribute("inert")
+        else side.setAttribute("inert", "")
+        if (open && !desktop.matches) {
+          var first = focusables()[0]
+          if (first) first.focus()
+        }
+      }
+
+      function close() {
+        if (!open) return
+        setOpen(false)
+        toggle.focus()
+      }
+
+      function sync() {
+        if (desktop.matches) {
+          setOpen(false)
+          side.removeAttribute("inert")
+        } else if (!open) {
+          side.setAttribute("inert", "")
+        }
+      }
+
+      toggle.addEventListener("click", function () {
+        if (open) close()
+        else setOpen(true)
+      })
+      backdrop.addEventListener("click", close)
+      if (closeBtn) closeBtn.addEventListener("click", close)
+
+      document.addEventListener("keydown", function (event) {
+        if (!open || desktop.matches) return
+        if (event.key === "Escape") {
+          close()
+          return
+        }
+        if (event.key !== "Tab") return
+        var items = focusables()
+        if (!items.length) return
+        var first = items[0]
+        var last = items[items.length - 1]
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      })
+
+      side.addEventListener("click", function (event) {
+        if (desktop.matches) return
+        if (event.target.closest("a")) close()
+      })
+
+      desktop.addEventListener("change", sync)
+      sync()
+
+      var tables = root.querySelectorAll(".prose table")
+      for (var t = 0; t < tables.length; t++) {
+        var table = tables[t]
+        var parent = table.parentElement
+        if (parent && parent.classList.contains("table-wrap")) continue
+        var wrap = document.createElement("div")
+        wrap.className = "table-wrap"
+        parent.insertBefore(wrap, table)
+        wrap.appendChild(table)
+      }
+
+      var blocks = root.querySelectorAll(".prose pre")
+      for (var i = 0; i < blocks.length; i++) {
+        ;(function (pre) {
+          var code = pre.textContent || ""
+          var button = document.createElement("button")
+          button.type = "button"
+          button.className = "copy-btn"
+          button.textContent = "Copy"
+          button.setAttribute("aria-label", "Copy code block")
+          button.addEventListener("click", function () {
+            function done() {
+              button.textContent = "Copied"
+              window.setTimeout(function () {
+                button.textContent = "Copy"
+              }, 1500)
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(code.replace(/\n$/, "")).then(done, function () {})
+            }
+          })
+          pre.appendChild(button)
+        })(blocks[i])
+      }
+    })()
+  </script>
+</Base>
+
+<style>
+  .docs {
+    padding-block: 1.5rem 3rem;
+  }
+
+  .docs-bar {
+    display: none;
+  }
+
+  /* Reading surfaces keep the sticky chrome solid: body text must not bleed
+     through the header while a long page scrolls under it. */
+  :global(body:has(.docs) .nav) {
+    background: var(--bg);
+  }
+
+  :global(html.js) .docs-bar {
+    position: sticky;
+    top: 3.75rem;
+    z-index: 40;
+    display: block;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .docs-bar-inner {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    min-height: 3.25rem;
+  }
+
+  .docs-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    margin-left: -0.6rem;
+    padding: 0 0.6rem;
+    border: 0;
+    border-radius: 8px;
+    background: none;
+    color: var(--fg);
+    font: inherit;
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+
+  .docs-toggle:hover {
+    background: var(--bg-hover);
+  }
+
+  .docs-toggle svg {
+    color: var(--fg-muted);
+  }
+
+  .docs-bar-title {
+    overflow: hidden;
+    color: var(--fg-muted);
+    font-size: 0.875rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .docs-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgb(0 0 0 / 0.45);
+  }
+
+  .docs-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2rem;
+  }
+
+  .docs-toc {
+    display: none;
+  }
+
+  /* Without scripting the sidebar is a plain list above the content. */
+  .docs-side {
+    display: grid;
+    gap: 0.6rem;
+    align-content: start;
+    margin-bottom: 0.5rem;
+  }
+
+  .docs-side-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .docs-side-label {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+  }
+
+  .docs-close {
+    display: none;
+  }
+
+  .docs-nav ol,
+  .docs-toc ol,
+  .docs-toc-mobile ol {
+    display: grid;
+    gap: 0.1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .docs-link {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 8px;
+    color: var(--fg-muted);
+    font-size: 0.95rem;
+    text-decoration: none;
+  }
+
+  .docs-link::before {
+    content: "";
+    flex: none;
+    width: 0.4rem;
+    height: 0.4rem;
+    margin-right: 0.55rem;
+    border-radius: 1px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity 0.15s var(--ease-out);
+  }
+
+  .docs-link:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+  }
+
+  .docs-link.active {
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  .docs-link.active::before {
+    opacity: 1;
+  }
+
+  .docs-contrib {
+    margin: 0.6rem 0 0;
+    padding: 0.9rem 0.6rem 0;
+    border-top: 1px solid var(--border-soft);
+    font-size: 0.9rem;
+  }
+
+  .docs-contrib a {
+    color: var(--fg-muted);
+    text-decoration: none;
+  }
+
+  .docs-contrib a:hover {
+    color: var(--accent);
+  }
+
+  @media (max-width: 1023px) {
+    :global(html.js) .docs-side {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 60;
+      display: block;
+      width: min(20rem, 86vw);
+      margin: 0;
+      padding: 1.1rem 1rem max(1.5rem, env(safe-area-inset-bottom));
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      background: var(--bg);
+      border-right: 1px solid var(--border);
+      box-shadow: 0 0 0 1px rgb(0 0 0 / 0.18), 24px 0 48px rgb(0 0 0 / 0.26);
+      transform: translateX(-102%);
+      transition: transform 0.28s var(--ease-out);
+    }
+
+    :global(html.js) .docs.is-open .docs-side {
+      transform: none;
+    }
+
+    :global(html.js) .docs-close {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 2.75rem;
+      height: 2.75rem;
+      margin-right: -0.6rem;
+      border: 0;
+      border-radius: 8px;
+      background: none;
+      color: var(--fg-muted);
+      cursor: pointer;
+    }
+
+    :global(html.js) .docs-close:hover {
+      background: var(--bg-hover);
+      color: var(--fg);
+    }
+
+    :global(html.js) .docs-side-head {
+      padding-bottom: 0.6rem;
+      border-bottom: 1px solid var(--border-soft);
+    }
+
+    :global(html.js) .docs-side .docs-link {
+      font-size: 1rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .docs {
+      padding-block: 2.5rem 5rem;
+    }
+
+    :global(html.js) .docs-bar {
+      display: none;
+    }
+
+    .docs-grid {
+      grid-template-columns: 15.5rem minmax(0, 1fr);
+      gap: 3.5rem;
+    }
+
+    .docs-side {
+      position: sticky;
+      top: 5.25rem;
+      margin-bottom: 0;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .docs-grid {
+      grid-template-columns: 15.5rem minmax(0, 1fr) 13.5rem;
+      gap: 3rem;
+    }
+
+    .docs-toc {
+      position: sticky;
+      top: 5.25rem;
+      display: block;
+      align-self: start;
+      max-height: calc(100vh - 7rem);
+      overflow-y: auto;
+      font-size: 0.875rem;
+    }
+
+    .docs-toc-mobile {
+      display: none;
+    }
+  }
+
+  .docs-main {
+    min-width: 0;
+  }
+
+  .docs-head h1 {
+    margin: 0 0 0.7rem;
+    font-size: clamp(1.9rem, 7vw, 2.75rem);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+
+  .docs-desc {
+    margin: 0 0 1.7rem;
+    max-width: 58ch;
+    color: var(--fg-muted);
+    font-size: clamp(1.05rem, 2.5vw, 1.2rem);
+    line-height: 1.55;
+    text-wrap: pretty;
+  }
+
+  .docs-toc-mobile {
+    margin: 0 0 1.8rem;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    background: var(--bg-card);
+  }
+
+  .docs-toc-mobile summary {
+    min-height: 2.75rem;
+    padding: 0.8rem 1rem;
+    color: var(--fg);
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+
+  .docs-toc-mobile summary::marker {
+    color: var(--fg-faint);
+  }
+
+  .docs-toc-mobile ol {
+    padding: 0 1rem 0.9rem;
+  }
+
+  .docs-toc-mobile li,
+  .docs-toc li {
+    padding-block: 0.22rem;
+  }
+
+  .docs-toc-mobile li.sub,
+  .docs-toc li.sub {
+    padding-left: 0.9rem;
+  }
+
+  .docs-toc-mobile a,
+  .docs-toc a {
+    color: var(--fg-muted);
+    text-decoration: none;
+  }
+
+  .docs-toc-mobile a:hover,
+  .docs-toc a:hover {
+    color: var(--accent);
+  }
+
+  .docs-pager {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  @media (min-width: 640px) {
+    .docs-pager {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .docs-pager-gap {
+    display: none;
+  }
+
+  .docs-pager-link {
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    text-decoration: none;
+    transition:
+      border-color 0.15s var(--ease-out),
+      background 0.15s var(--ease-out);
+  }
+
+  .docs-pager-link:hover {
+    border-color: var(--border);
+    background: var(--bg-hover);
+  }
+
+  .docs-pager-link span {
+    color: var(--fg-faint);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .docs-pager-link strong {
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  .docs-pager-link.next {
+    text-align: right;
+  }
+
+  /* Prose: Markdown output is slotted, so descendant rules are global. */
+  .prose {
+    min-width: 0;
+    max-width: 74ch;
+    font-size: 1rem;
+    line-height: 1.7;
+  }
+
+  @media (min-width: 1024px) {
+    .prose {
+      font-size: 1.0625rem;
+    }
+  }
+
+  .prose :global(h2),
+  .prose :global(h3) {
+    scroll-margin-top: 5.5rem;
+  }
+
+  .prose :global(h2) {
+    margin: 2.6rem 0 0.9rem;
+    padding-top: 1.7rem;
+    border-top: 1px solid var(--border-soft);
+    font-size: clamp(1.3rem, 3.5vw, 1.6rem);
+    font-weight: 700;
+    line-height: 1.18;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  .prose :global(h3) {
+    margin: 1.9rem 0 0.6rem;
+    font-size: 1.1rem;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .prose :global(p) {
+    margin: 0 0 1.05rem;
+    color: var(--fg-muted);
+    text-wrap: pretty;
+  }
+
+  .prose :global(ul),
+  .prose :global(ol) {
+    margin: 0 0 1.05rem;
+    padding-left: 1.3rem;
+    color: var(--fg-muted);
+  }
+
+  .prose :global(li) {
+    margin: 0.32rem 0;
+  }
+
+  .prose :global(li)::marker {
+    color: var(--fg-faint);
+  }
+
+  .prose :global(strong) {
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  .prose :global(a) {
+    color: var(--accent);
+    text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    text-underline-offset: 3px;
+  }
+
+  .prose :global(a:hover) {
+    text-decoration-color: var(--accent);
+  }
+
+  .prose :global(hr) {
+    margin: 2.4rem 0;
+    border: 0;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .prose :global(blockquote) {
+    margin: 0 0 1.05rem;
+    padding: 0.15rem 0 0.15rem 1rem;
+    border-left: 2px solid var(--accent);
+    color: var(--fg-muted);
+  }
+
+  .prose :global(pre) {
+    position: relative;
+    margin: 0 0 1.35rem;
+    padding: 0.95rem 1.1rem;
+    overflow-x: auto;
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    background: var(--bg-bar);
+    font-size: 0.8125rem;
+    line-height: 1.6;
+  }
+
+  .prose :global(pre code) {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: inherit;
+    white-space: pre;
+  }
+
+  .prose :global(.copy-btn) {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    min-height: 2rem;
+    padding: 0 0.55rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.04em;
+    opacity: 0;
+    cursor: pointer;
+    transition:
+      opacity 0.15s var(--ease-out),
+      color 0.15s var(--ease-out);
+  }
+
+  @media (hover: hover) {
+    .prose :global(pre:hover .copy-btn),
+    .prose :global(pre:focus-within .copy-btn) {
+      opacity: 1;
+    }
+  }
+
+  @media (hover: none) {
+    .prose :global(.copy-btn) {
+      opacity: 0.9;
+    }
+  }
+
+  .prose :global(.copy-btn:hover) {
+    color: var(--fg);
+  }
+
+  .prose :global(.table-wrap) {
+    margin: 0 0 1.35rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .prose :global(.table-wrap table) {
+    margin: 0;
+  }
+
+  .prose :global(table) {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+
+  .prose :global(th) {
+    padding: 0.55rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--fg);
+    font-weight: 600;
+    text-align: left;
+  }
+
+  .prose :global(td) {
+    padding: 0.55rem 0.7rem;
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--fg-muted);
+    vertical-align: top;
+  }
+
+  .prose :global(kbd) {
+    display: inline-block;
+    padding: 0.12em 0.42em;
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    background: var(--bg-bar);
+    color: var(--fg);
+    font-size: 0.78em;
+    white-space: nowrap;
+  }
+
+  .prose :global(img) {
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+  }
+
+  .docs :global(:focus-visible) {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    :global(html.js) .docs-side,
+    .prose :global(.copy-btn) {
+      transition: none;
+    }
+  }
+</style>

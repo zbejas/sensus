@@ -1,0 +1,315 @@
+{
+  "commands": [
+    {
+      "name": "help",
+      "usage": "",
+      "description": "show the command list",
+      "label": "Show help",
+      "keys": [],
+      "category": "help"
+    },
+    {
+      "name": "model",
+      "usage": "[<endpoint>@<model>]",
+      "description": "model picker / set model (persists)",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "models",
+      "usage": "",
+      "description": "open the model picker (all endpoints)",
+      "label": "Model catalog",
+      "keys": [],
+      "category": "settings"
+    },
+    {
+      "name": "agent",
+      "usage": "[<name>]",
+      "description": "agent picker / switch agent (persists)",
+      "label": "Agent picker",
+      "keys": [
+        "alt+m"
+      ],
+      "category": "chat"
+    },
+    {
+      "name": "context",
+      "usage": "on|off",
+      "description": "attach terminal context (on|off)",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "compact",
+      "usage": "",
+      "description": "summarize older history to free context",
+      "label": "Compact history",
+      "keys": [],
+      "category": "chat"
+    },
+    {
+      "name": "image",
+      "usage": "[<path>|clear]",
+      "description": "attach an image file for the model",
+      "label": "Paste",
+      "keys": [
+        "ctrl+shift+v",
+        "alt+v"
+      ],
+      "category": "chat"
+    },
+    {
+      "name": "ctx",
+      "usage": "",
+      "description": "context inspector (what's in context)",
+      "label": "Context inspector",
+      "keys": [],
+      "category": "chat"
+    },
+    {
+      "name": "status",
+      "usage": "",
+      "description": "runtime readout in the chat",
+      "label": "Session status",
+      "keys": [],
+      "category": "help"
+    },
+    {
+      "name": "yolo",
+      "usage": "[off]",
+      "description": "full-auto approval toggle",
+      "label": "Toggle approval",
+      "keys": [
+        "alt+y"
+      ],
+      "category": "chat"
+    },
+    {
+      "name": "sudo",
+      "usage": "[forget]",
+      "description": "session sudo password (forget clears it)",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "thinking",
+      "usage": "[show|hide]",
+      "description": "model reasoning display (show|hide)",
+      "label": "Toggle thinking display",
+      "keys": [
+        "alt+t"
+      ],
+      "category": "chat"
+    },
+    {
+      "name": "effort",
+      "usage": "[<mode>]",
+      "description": "thinking mode (effort/budget)",
+      "label": "Cycle thinking mode",
+      "keys": [],
+      "category": "chat"
+    },
+    {
+      "name": "details",
+      "usage": "[on|off]",
+      "description": "tool output detail (on=expanded)",
+      "label": "Toggle tool details",
+      "keys": [
+        "alt+e"
+      ],
+      "category": "chat"
+    },
+    {
+      "name": "cards",
+      "usage": "[fill|border]",
+      "description": "message card style (fill panel | border)",
+      "label": "Toggle card style",
+      "keys": [
+        "alt+c"
+      ],
+      "category": "chat"
+    },
+    {
+      "name": "clear",
+      "usage": "",
+      "description": "wipe this chat (old file kept)",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "reload",
+      "usage": "",
+      "description": "re-read config + AGENTS.md + agents",
+      "label": "Reload config",
+      "keys": [],
+      "category": "settings"
+    },
+    {
+      "name": "memory",
+      "usage": "",
+      "description": "agent memory manager",
+      "label": "Agent memory",
+      "keys": [],
+      "category": "settings"
+    },
+    {
+      "name": "skills",
+      "usage": "",
+      "description": "skill manager",
+      "label": "Skills",
+      "keys": [],
+      "category": "settings"
+    },
+    {
+      "name": "skill",
+      "usage": "<name>",
+      "description": "load a skill into the chat",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "learn",
+      "usage": "[name]",
+      "description": "save this procedure as a skill",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "remember",
+      "usage": "<fact>",
+      "description": "save a fact to MEMORY.md",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "pin",
+      "usage": "",
+      "description": "pin the last reply vs compaction",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "unpin",
+      "usage": "",
+      "description": "clear pinned facts",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "undo",
+      "usage": "",
+      "description": "restore the last file write",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "audit",
+      "usage": "[n]",
+      "description": "show recent actions",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "usage",
+      "usage": "",
+      "description": "token usage dashboard",
+      "label": "Usage dashboard",
+      "keys": [],
+      "category": "settings"
+    },
+    {
+      "name": "keys",
+      "usage": "",
+      "description": "remap global hotkeys",
+      "label": "Keybindings",
+      "keys": [],
+      "category": "settings"
+    },
+    {
+      "name": "edit",
+      "usage": "",
+      "description": "edit + resend the last message",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "retry",
+      "usage": "",
+      "description": "ask again (resend the last message)",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "find",
+      "usage": "<text>",
+      "description": "search this chat",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "sessions",
+      "usage": "[query]",
+      "description": "search past chat sessions",
+      "label": "Session search",
+      "keys": [],
+      "category": "settings"
+    },
+    {
+      "name": "map",
+      "usage": "",
+      "description": "read-only scan; draft HOST.md",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "mcp",
+      "usage": "[on|off]",
+      "description": "MCP servers status / session toggle",
+      "label": "MCP servers",
+      "keys": [],
+      "category": "settings"
+    },
+    {
+      "name": "theme",
+      "usage": "[name]",
+      "description": "switch theme live (persists)",
+      "label": null,
+      "keys": [],
+      "category": null
+    },
+    {
+      "name": "settings",
+      "usage": "",
+      "description": "settings screen (endpoints, keys)",
+      "label": "Open settings",
+      "keys": [
+        "ctrl+o"
+      ],
+      "category": "settings"
+    },
+    {
+      "name": "init-wizard",
+      "usage": "",
+      "description": "setup wizard (endpoints, model, theme)",
+      "label": "Setup wizard",
+      "keys": [],
+      "category": "settings"
+    }
+  ]
+}

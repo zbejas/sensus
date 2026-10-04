@@ -1,0 +1,88 @@
+---
+import Base from "../layouts/Base.astro"
+import Nav from "../components/Nav.astro"
+import Footer from "../components/Footer.astro"
+---
+
+<Base title="404 · sensus" description="That page does not exist. The shell still does.">
+  <Nav />
+  <main class="missing">
+    <div class="wrap" id="missing">
+      <p class="mono err">bash: /404: No such file or directory</p>
+      <h1 class="display">Wrong pane.</h1>
+      <p class="body">That page does not exist. The shell still does.</p>
+      <a class="btn" href="/">cd ~</a>
+    </div>
+    <div class="wrap" id="docs-missing" hidden>
+      <p class="mono note">docs · moving day</p>
+      <h1 class="display">This page is moving.</h1>
+      <p class="body">This docs page isn't live yet. The engineering docs are still in the repository.</p>
+      <div class="actions">
+        <a
+          class="btn"
+          href="https://github.com/zbejas/sensus/tree/main/docs"
+          target="_blank"
+          rel="noopener noreferrer">Read the docs on GitHub</a
+        >
+        <a class="btn-ghost" href="/">cd ~</a>
+      </div>
+    </div>
+  </main>
+  <Footer />
+  <script is:inline>
+    // Docs-aware 404: unmigrated /docs links fall back to the repository copy.
+    // The "Wrong pane" markup above is the no-JS default; this only swaps the
+    // visible block when the visitor landed on a docs path that isn't live yet.
+    ;(function () {
+      try {
+        var path = window.location.pathname
+        if (path !== "/docs" && path.indexOf("/docs/") !== 0) return
+        var fallback = document.getElementById("missing")
+        var docs = document.getElementById("docs-missing")
+        if (!fallback || !docs) return
+        fallback.hidden = true
+        docs.hidden = false
+        document.title = "Docs · sensus"
+      } catch (error) {
+        // Keep the default 404 on any failure.
+      }
+    })()
+  </script>
+</Base>
+
+<style>
+  .missing {
+    display: grid;
+    place-items: center;
+    min-height: 62vh;
+    text-align: center;
+  }
+
+  .missing .wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    gap: 1.25rem;
+  }
+
+  .err {
+    margin: 0;
+    color: var(--danger);
+  }
+
+  .note {
+    margin: 0;
+    color: var(--accent);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.85rem;
+  }
+
+  [hidden] {
+    display: none !important;
+  }
+</style>

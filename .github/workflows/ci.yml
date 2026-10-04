@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: CI only needs to read the repo.
+permissions:
+  contents: read
+
+# Supersede in-flight runs on the same ref — a newer commit makes an older
+# run pointless.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Smoke is deliberately NOT run here: booting the real app in tmux is ~3 min of
+# real PTY/renderer per run and is too taxing for GitHub (and it exercises the
+# host, not a merge gate). It stays the LOCAL final gate for behavior-affecting
+# changes (AGENTS.md "Non-negotiable rules" #6 / docs/testing.md). GitHub runs
+# the cheap, deterministic checks:
+#   verify      — license gate + typecheck + unit on the Bun floor AND on
+#                 latest. The build's dual Solid-plugin registration exists
+#                 precisely because Bun versions differ (scripts/build.ts), so
+#                 both ends are tested. license:check builds dist/sensus (fast)
+#                 and fails if a bundled dependency's license is missing or
+#                 outside the allow-list (docs/licensing.md).
+#   ship-macos  — the macOS-only ad-hoc code-sign path (scripts/macosSign.ts):
+#                 a broken signature makes the kernel SIGKILL the binary
+#                 (`Killed: 9`) before any code runs, which only a macOS runner
+#                 can catch (ubuntu never exercises it). Pinned to Bun 1.4.2:
+#                 1.4.1's bundler emits an invalid binary for Elysia's schema
+#                 module (docs/operations.md "Build & ship").
+#   site        — the sensus.sh Astro site (site/): install, astro check, unit
+#                 tests, production build. Cloudflare Pages builds and deploys
+#                 the same directory on push (docs/operations.md "Website").
+jobs:
+  verify:
+    name: license + typecheck + unit (bun ${{ matrix.bun }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        bun: ["1.4.1", "latest"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ matrix.bun }}
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run license:check
+      - run: bun run typecheck
+      - run: bun run test:unit
+
+  site:
+    name: site build + check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      # Astro 7's build-time integration wants Node >= 22.12; Bun stays the
+      # package manager and test runner.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22.12.0"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-site-${{ runner.os }}-${{ hashFiles('site/bun.lock') }}
+          restore-keys: |
+            bun-site-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun test
+      - run: bun run build
+
+  ship-macos:
+    name: build + sign (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+      - uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+      - run: bun install --frozen-lockfile
+      # `bun run build` compiles AND ad-hoc signs (scripts/macosSign.ts). If the
+      # signature is rejected the kernel kills the binary, so simply running it
+      # is the code-signature guard (docs/operations.md "Compiled-binary").
+      # The build pins 1.4.2 (NOT the 1.4.1 runtime floor): Bun 1.4.1's bundler
+      # renamer emits an invalid `var Check2 = Check2` for Elysia's schema module,
+      # so the compiled binary dies at startup with a SyntaxError before main()
+      # (docs/operations.md "Build & ship").
+      - run: bun run build
+      - name: Binary runs + version matches package.json
+        run: |
+          expected="sensus $(bun -e 'const p = await Bun.file("package.json").json(); console.log(p.version)')"
+          actual="$(./dist/sensus --version)"
+          echo "binary:   $actual"
+          echo "expected: $expected"
+          test "$actual" = "$expected"
+      - name: Headless config scaffold
+        run: |
+          export SENSUS_HOME="$RUNNER_TEMP/sensus-home"
+          ./dist/sensus init --create-config
+          test -f "$SENSUS_HOME/config.json"
+      - name: Upload the macOS binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: sensus-macos
+          path: dist/sensus

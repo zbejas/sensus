@@ -1,0 +1,97 @@
+---
+import "../styles/tokens.css"
+import "../styles/global.css"
+
+interface Props {
+  title?: string
+  description?: string
+}
+
+const {
+  title = "sensus · a terminal you live in",
+  description = "A fullscreen TUI that pairs a real, interactive shell with an AI agent chat. The agent sees your terminal, investigates in a hidden shell, and can type into your visible pane on request.",
+} = Astro.props
+
+const origin = Astro.site ?? new URL("https://sensus.sh")
+const canonical = new URL(Astro.url.pathname, origin)
+const ogImage = new URL("/og.png", origin)
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical.href} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#11151b" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f7f6f2" media="(prefers-color-scheme: light)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="sensus" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical.href} />
+    <meta property="og:image" content={ogImage.href} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage.href} />
+    <script is:inline>
+      // Progressive enhancement for the scroll reveals. `js` is added before
+      // first paint so reveal targets never flash; without scripting they are
+      // simply visible. The observer adds `is-inview` once per reveal target,
+      // and toggles it for the approval pulses so their loop stops offscreen.
+      // `reveal-fallback` restores everything if this fails.
+      ;(function () {
+        var root = document.documentElement
+        root.classList.add("js")
+        function setup() {
+          try {
+            var reveal = new IntersectionObserver(
+              function (entries) {
+                for (var i = 0; i < entries.length; i++) {
+                  if (!entries[i].isIntersecting) continue
+                  entries[i].target.classList.add("is-inview")
+                  reveal.unobserve(entries[i].target)
+                }
+              },
+              { rootMargin: "0px 0px -8% 0px", threshold: 0.12 },
+            )
+            var targets = document.querySelectorAll(
+              "[data-reveal],[data-reveal-stagger],[data-reveal-step],[data-reveal-print]",
+            )
+            for (var j = 0; j < targets.length; j++) reveal.observe(targets[j])
+
+            var pulse = new IntersectionObserver(function (entries) {
+              for (var k = 0; k < entries.length; k++) {
+                entries[k].target.classList.toggle("is-inview", entries[k].isIntersecting)
+              }
+            })
+            var pulses = document.querySelectorAll("[data-pulse]")
+            for (var m = 0; m < pulses.length; m++) pulse.observe(pulses[m])
+          } catch (error) {
+            root.classList.add("reveal-fallback")
+          }
+        }
+        if (document.readyState === "loading") {
+          document.addEventListener("DOMContentLoaded", setup)
+        } else {
+          setup()
+        }
+      })()
+    </script>
+  </head>
+  <body>
+    <!--
+      THESIS: The site is the product's own terminal: a real split-pane session, not a page about one. It refuses the SaaS hero and the dark-neon developer-page costume.
+      OWN-WORLD: The site's own ink/paper token pair (layered slate chrome #11151b/#1a1f27, #e9ecf2 text, #58c4d8 accent, #2b323d hairlines) rendered as the real TUI in both layouts (tabs rail or row-0 tab bar), with terminal, chat, and status cards; mono only where the shell would print it.
+      STORY: The shell pane is real, the agent sees and can drive it, exiting strands nothing, then copy the one-liner.
+      FIRST VIEWPORT: "A terminal you live in." at up to 5rem, one lead paragraph, the copyable install command, and the full-width split-pane mock already booting beneath.
+      FORM: Centered hero over a full-width interface mock, alternating split sections, one full-bleed transcript band, provider rows, loud install close, shaped directly from the pinned brief (bun.sh clarity × opencode texture × Apple scale); no seed key, the tournament was skipped because the brief pinned the world.
+      FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
+    -->
+    <slot />
+  </body>
+</html>

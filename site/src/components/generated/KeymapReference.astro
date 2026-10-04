@@ -1,0 +1,72 @@
+---
+import keymap from "../../data/generated/keymap.json"
+
+// Rows arrive grouped by category (the generator sorts by category order, then
+// label); collapse them into contiguous groups for the section headings.
+const groups: Array<{ label: string; rows: typeof keymap.bindings }> = []
+for (const row of keymap.bindings) {
+  const last = groups[groups.length - 1]
+  if (last && last.label === row.categoryLabel) last.rows.push(row)
+  else groups.push({ label: row.categoryLabel, rows: [row] })
+}
+---
+
+<section class="ref" aria-label="Keybindings reference">
+  {
+    groups.map((group) => (
+      <div class="ref-group">
+        <h3>{group.label}</h3>
+        <div class="ref-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Keys</th>
+                <th>Action</th>
+                <th>Equivalent</th>
+              </tr>
+            </thead>
+            <tbody>
+              {group.rows.map((row) => (
+                <tr>
+                  <td class="ref-keys">{row.keys.map((key) => <kbd>{key}</kbd>)}</td>
+                  <td>
+                    <span class="ref-label">{row.label}</span>
+                    <span class="ref-desc">{row.description}</span>
+                  </td>
+                  <td class="ref-slash">{row.slash !== null ? <code>{row.slash}</code> : "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    ))
+  }
+</section>
+
+<style>
+  .ref-scroll {
+    overflow-x: auto;
+  }
+
+  .ref-keys,
+  .ref-slash {
+    white-space: nowrap;
+  }
+
+  .ref-keys :global(kbd + kbd) {
+    margin-left: 0.35rem;
+  }
+
+  .ref-label {
+    display: block;
+    color: var(--fg);
+    font-weight: 600;
+  }
+
+  .ref-desc {
+    display: block;
+    color: var(--fg-muted);
+    font-size: 0.85em;
+  }
+</style>

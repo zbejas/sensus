@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.sensus-test/typescript
+.emitProbe*.tsx
+screenshots/
+.impeccable/
+.playwright-mcp/

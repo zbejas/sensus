@@ -30,9 +30,9 @@ concurrency:
 #   ship-macos  — the macOS-only ad-hoc code-sign path (scripts/macosSign.ts):
 #                 a broken signature makes the kernel SIGKILL the binary
 #                 (`Killed: 9`) before any code runs, which only a macOS runner
-#                 can catch (ubuntu never exercises it). Pinned to Bun 1.4.2:
-#                 1.4.1's bundler emits an invalid binary for Elysia's schema
-#                 module (docs/operations.md "Build & ship").
+#                 can catch (ubuntu never exercises it). Pinned to the Bun floor
+#                 (1.4.2): 1.4.1's bundler emits an invalid binary for Elysia's
+#                 schema module (docs/operations.md "Build & ship").
 #   site        — the sensus.sh Astro site (site/): install, astro check, unit
 #                 tests, production build. Cloudflare Pages builds and deploys
 #                 the same directory on push (docs/operations.md "Website").
@@ -44,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        bun: ["1.4.1", "latest"]
+        bun: ["1.4.2", "latest"]
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -108,9 +108,9 @@ jobs:
       # `bun run build` compiles AND ad-hoc signs (scripts/macosSign.ts). If the
       # signature is rejected the kernel kills the binary, so simply running it
       # is the code-signature guard (docs/operations.md "Compiled-binary").
-      # The build pins 1.4.2 (NOT the 1.4.1 runtime floor): Bun 1.4.1's bundler
-      # renamer emits an invalid `var Check2 = Check2` for Elysia's schema module,
-      # so the compiled binary dies at startup with a SyntaxError before main()
+      # The build pins the repo floor, Bun 1.4.2: Bun 1.4.1's bundler renamer emits
+      # an invalid `var Check2 = Check2` for Elysia's schema module, so the compiled
+      # binary dies at startup with a SyntaxError before main() runs
       # (docs/operations.md "Build & ship").
       - run: bun run build
       - name: Binary runs + version matches package.json

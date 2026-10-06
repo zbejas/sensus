@@ -209,12 +209,12 @@ The daemon (`src/daemon/**`) hosts that surface headlessly and must likewise nev
 - No tmux at runtime. The left pane is a native PTY (`Bun.Terminal`) rendered by OpenTUI's
   embedded VT; the native artifact supports x86_64/aarch64 on macOS and Linux
   (glibc/musl). The PTY path is POSIX-only.
-- Bun ≥ 1.4.1 is required to run (not just build): the app uses `Bun.Terminal` /
+- Bun ≥ 1.4.2 is required to run (not just build): the app uses `Bun.Terminal` /
   `Bun.spawn({ terminal })` at runtime. If `bun install` blocks on engine checks, run
   `bun upgrade` first.
-- Building the standalone binary needs **bun ≥ 1.4.2**: bun 1.4.1's bundler emits an
+- Building the standalone binary needs the same floor: bun 1.4.1's bundler emits an
   invalid binary for Elysia's schema module (it dies at startup with a `SyntaxError`
-  before `main()`). `bun run dev` never bundles, so the 1.4.1 runtime floor still holds
+  before `main()`), so the repo has a single **bun ≥ 1.4.2** floor for dev and build
   (docs/operations.md "Build & ship").
 - tmux is optional: the smoke suite uses an outer tmux as a driver only.
 - A terminal of at least 20×5 is required; a smaller one refuses to boot with a clear

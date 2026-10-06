@@ -7,7 +7,7 @@ agent chat sidebar on the right. The agent sees your terminal, investigates in a
 shell, and can type into your visible pane on request.
 
 [![Platform: Linux | macOS](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-blue?style=flat-square)](https://sensus.sh/docs/install/)
-[![Runtime: Bun >= 1.4.1](https://img.shields.io/badge/runtime-Bun%20%E2%89%A5%201.4.1-black?style=flat-square)](https://sensus.sh/docs/development/)
+[![Runtime: Bun >= 1.4.2](https://img.shields.io/badge/runtime-Bun%20%E2%89%A5%201.4.2-black?style=flat-square)](https://sensus.sh/docs/development/)
 [![Docs](https://img.shields.io/badge/docs-manual-4EAA25?style=flat-square)](https://sensus.sh/docs/)
 <a href="https://sensus.sh" target="_blank" rel="noopener"><img src="https://img.shields.io/badge/website-sensus.sh-5fafd7?style=flat-square" alt="Website"></a>
 
@@ -113,7 +113,7 @@ bun run build        # standalone binary -> dist/sensus
 ./scripts/build-install.sh   # build + install (user by default; -g for global)
 ```
 
-Requires Bun ≥ 1.4.1 to run from source and ≥ 1.4.2 to build the binary. The contributor
+Requires Bun ≥ 1.4.2 to run from source and to build the binary. The contributor
 knowledge base starts at [`docs/architecture.md`](docs/architecture.md); the manual's
 [Build from source](https://sensus.sh/docs/development/) page covers the same ground for
 users.

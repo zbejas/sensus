@@ -11,7 +11,7 @@ real, interactive shell on a private native PTY rendered by OpenTUI's embedded V
 SSH it is just a TUI; no host-side terminal multiplexer is required.
 
 Runtime requirements: Linux or macOS on x86_64/aarch64 (the embedded terminal's native
-artifact; the PTY path is POSIX-only). Build/install requirement: Bun ≥ 1.4.1 (the shipped
+artifact; the PTY path is POSIX-only). Build/run requirement: Bun ≥ 1.4.2 (the shipped
 artifact is a standalone compiled binary that embeds the runtime, but the PTY/embedded
 terminal APIs are used at runtime). No tmux or other host multiplexer is needed. See
 [`operations.md`](operations.md).

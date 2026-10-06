@@ -14,8 +14,8 @@ cd sensus
 ## Requirements
 
 - Linux or macOS on x86_64 or aarch64.
-- **Bun** ≥ 1.4.1 to run from source, and ≥ 1.4.2 to build the standalone binary. The older
-  bundler emits a binary that fails at startup; `bun upgrade` fixes it.
+- **Bun** ≥ 1.4.2 to run from source and to build the standalone binary. The 1.4.1 bundler
+  emits a binary that fails at startup; `bun upgrade` fixes it.
 - **Node.js** ≥ 22.12 only if you build the website.
 
 The release installer needs none of these: shipped binaries embed the runtime. See

@@ -11,7 +11,7 @@ Sensus ships as native standalone binaries (`sensus-linux-x64`, `sensus-linux-ar
 `sensus-darwin-arm64`, `sensus-darwin-x64`) for Linux and macOS on x86_64/aarch64, released
 automatically when the `package.json` version changes and installable with one line
 (`curl -fsSL https://sensus.sh/install | bash`); the version lives in `package.json`.
-Building from source needs Bun ≥ 1.4.2. The site lives in `site/`
+Running from source and building need Bun ≥ 1.4.2. The site lives in `site/`
 ([`operations.md`](operations.md) §Website).
 The shipped surface:
 

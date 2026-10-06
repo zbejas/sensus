@@ -11,8 +11,8 @@
 # SENSUS_PREBUILT. For a prebuilt release (no checkout, no bun):
 #   curl -fsSL https://sensus.sh/install | bash
 #
-# Requires bun >= 1.4.1 to run and >= 1.4.2 to build (docs/operations.md
-# "Build & ship": bun 1.4.1's bundler emits a binary that fails at startup).
+# Requires bun >= 1.4.2 to run and to build (docs/operations.md "Build & ship":
+# bun 1.4.1's bundler emits a binary that fails at startup).
 
 set -euo pipefail
 
@@ -67,26 +67,17 @@ command -v bun >/dev/null 2>&1 || die "bun is required to build from source but 
   Install it first:  curl -fsSL https://bun.sh/install | bash
   Or install a prebuilt release instead:  curl -fsSL https://sensus.sh/install | bash"
 
-# The repo requires bun >= 1.4.1 (package.json engines). An older bun cannot
-# parse bun.lock (lockfileVersion 2) and silently installs floating versions —
-# warn loudly, but still let the install proceed.
+# The repo requires bun >= 1.4.2 (package.json engines) to run and to build. Bun
+# below 1.4.1 cannot parse bun.lock (lockfileVersion 2) and silently installs
+# floating versions; bun 1.4.1's bundler renamer emits an invalid
+# `var Check2 = Check2` for Elysia, so a binary built on it dies at startup with
+# a SyntaxError. Warn loudly, but still let the install proceed.
 BUN_VERSION="$(bun --version 2>/dev/null || true)"
-if [ -n "$BUN_VERSION" ] && ! bun_at_least "$BUN_VERSION" "1.4.1"; then
-  say "WARNING: bun $BUN_VERSION is older than the required 1.4.1."
-  say "  Its lockfile format is newer than this bun understands, so \`bun install\`"
-  say "  ignores bun.lock and may pick different package versions. Upgrade first:"
-  say "    bun upgrade"
-  say ""
-fi
-
-# Bundling Elysia needs bun >= 1.4.2: bun 1.4.1's bundler renamer emits an
-# invalid `var Check2 = Check2` for elysia's schema module, so a binary built
-# from source on 1.4.1 dies at startup with a SyntaxError.
 if [ -n "$BUN_VERSION" ] && ! bun_at_least "$BUN_VERSION" "1.4.2"; then
-  say "WARNING: bun < 1.4.2 cannot build a working sensus binary."
-  say "  bun 1.4.1's bundler emits invalid JS for Elysia, so the binary fails at startup;"
-  say "  build with 1.4.2 or newer, or supply a prebuilt binary (install-release.sh / SENSUS_PREBUILT)."
-  say "  Upgrade:"
+  say "WARNING: bun $BUN_VERSION is older than the required 1.4.2."
+  say "  bun below 1.4.1 ignores bun.lock (lockfileVersion 2) and may pick different"
+  say "  package versions; bun 1.4.1 builds a binary that fails at startup with a"
+  say "  SyntaxError. Upgrade first:"
   say "    bun upgrade"
   say ""
 fi

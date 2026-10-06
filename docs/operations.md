@@ -321,13 +321,11 @@ Flags:
 The install step warns if the install dir is not on PATH, runs the headless
 `init --create-config` scaffold (never overwrites), and **never touches a shell rc file**.
 
-- Requires bun ≥ 1.4.1 to run (the repo's `engines` floor). **Building from source** —
-  `./scripts/build-install.sh` in a checkout — requires bun ≥ 1.4.2 (see "Build & ship"). An
-  older bun cannot parse `bun.lock` (lockfileVersion 2): the build installer warns,
-  `bun install` silently ignores the lockfile, and dependency versions float — run
-  `bun upgrade` first.
-- Release binaries are built on the pinned Bun 1.4.2 (see "Releases"), so the release path
-  sidesteps the version floor entirely.
+- Requires bun ≥ 1.4.2 to run and to build from source (the repo's `engines` floor; see
+  "Build & ship"). Bun below 1.4.1 cannot parse `bun.lock` (lockfileVersion 2): the build
+  installer warns, `bun install` silently ignores the lockfile, and dependency versions
+  float — run `bun upgrade` first.
+- Release binaries are built on the pinned Bun 1.4.2 (see "Releases"), matching the floor.
 
 ## Update
 
@@ -404,8 +402,8 @@ Keep-following rules (a broken build otherwise fails silently):
   shadowing the `let Check2` in the same scope — so a binary built on 1.4.1 dies at startup
   with `SyntaxError: Cannot declare a var variable that shadows a let/const/class variable:
   'Check2'` *before* `main()` runs (the build itself still reports success). 1.4.2 fixed the
-  renamer. CI's `ship-macos` builds on 1.4.2 and running the binary is the guard; the
-  runtime floor stays 1.4.1 because `bun run dev` never bundles.
+  renamer, and it is the repo's single version floor (`package.json` `engines`): CI's
+  `ship-macos` builds on it and running the binary is the guard.
 - `bin/sensus.js` is the npm-style run-from-source launcher; it is not the compiled binary.
 
 ### Release contents
@@ -459,9 +457,9 @@ not "package.json was touched", and a failed run can be re-run without publishin
   commit.
 
 The build pins Bun **1.4.2** (the version that bundles Elysia correctly — see "Build &
-ship"); it is the release gate, so the runtime floor for users stays 1.4.1. musl builds and
-Windows are deliberately not shipped: OpenTUI's musl native needs `OPENTUI_LIBC=musl` and
-the PTY path is POSIX-only.
+ship"), which is also the repo's runtime floor for source builds (`engines`). musl builds
+and Windows are deliberately not shipped: OpenTUI's musl native needs `OPENTUI_LIBC=musl`
+and the PTY path is POSIX-only.
 
 The installer consumes exactly this layout: `<base>/{latest|download/v<version>}/download/<asset>`
 plus `checksums.txt` at the same level, where `<base>` defaults to the repo's GitHub
@@ -473,7 +471,7 @@ Releases and is overridable with `SENSUS_RELEASES_BASE_URL`.
 `workflow_dispatch` (concurrency cancels superseded runs on the same ref):
 
 - `verify` (`bun run typecheck` + `bun run test:unit`) on a Bun matrix of the pinned floor
-  (`1.4.1`) **and** `latest` — the dual Solid-plugin registration in `scripts/build.ts`
+  (`1.4.2`) **and** `latest` — the dual Solid-plugin registration in `scripts/build.ts`
   exists because Bun versions differ, so both ends are tested.
 - `ship-macos` (`bun run build` on `macos-latest`, pinned to Bun **1.4.2** — the version
   that bundles Elysia correctly — then run the binary). This is the macOS-only code-sign
@@ -542,9 +540,9 @@ after a re-render instead of showing a stale cached card.
 - **No tmux.** The left pane is a native PTY (`Bun.Terminal`) rendered by OpenTUI's
   embedded VT; the native support covers x86_64/aarch64 on macOS and Linux (glibc/musl),
   and the PTY path is POSIX-only.
-- **Bun ≥ 1.4.1 to run** (not just build): the app calls `Bun.Terminal` /
-  `Bun.spawn({ terminal })` at runtime. The shipped binary embeds Bun, so an end user needs
-  no separate install; building from source needs it.
+- **Bun ≥ 1.4.2 to run** (not just build): the app calls `Bun.Terminal` /
+  `Bun.spawn({ terminal })` at runtime, and 1.4.1 cannot build a working binary. The shipped
+  binary embeds Bun, so an end user needs no separate install; building from source needs it.
 - A terminal of at least 20×5; a smaller one refuses to boot with a clear message, and a
   mid-run shrink shows a notice until it grows back.
 - Over SSH sensus works as a normal TUI; no host-side terminal multiplexer is required.

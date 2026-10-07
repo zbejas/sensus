@@ -23,6 +23,7 @@ sensus server). The UI that mounts the renderable is [`ui.md`](ui.md); the color
 | `src/terminal/scan.ts` | `StreamScanner` + `TextRing`: incremental OSC/CSI scanner over raw bytes for the plain-text ring, title, OSC 7 cwd, alt-screen flag, application-cursor (DECCKM) and OSC 133 marks |
 | `src/terminal/sgr.ts` | `SgrColorRewriter` + `buildPanePalette`: rewrites indexed output SGR colors to truecolor from the detected/override palette and re-applies the theme default **fg** on resets before the bytes reach the VT (the default **bg** is painted by `paneBg.ts`; pure, incremental, never throws) |
 | `src/terminal/paneBg.ts` | `PanePainter` + `paintDefaultBackground`: in the renderable's `renderAfter` hook, remaps frozen theme/palette colors to the current ones and repaints the VT's opaque-black default-background cells, so existing content follows the theme across resize and theme switches (pure) |
+| `src/terminal/scrollback.ts` | `TerminalScrollback` + `DEFAULT_PANE_SCROLLBACK_BYTES` + `TerminalScrollInfo`: the pane scrollbar's geometry. Renderer-free (a `ScrollbackViewport` seam): calibrates the exact history depth with relative scrolls + a screen-unchanged probe, tracks the viewport row between calibrations, and throttles re-measures (pinned vs. scrolled). The client's native-scroll hook adds wheel acceleration |
 | `src/terminal/keys.ts` | `KeyAction` vocabulary, opentui key event → action mapping, action → raw PTY bytes (`mapKeyEventToAction`, `agentKeyAction`, `encodeKeyAction`, `encodeNamedKey`), and the embedded renderable's F1–F12 patch (`installFunctionKeyEncoding`) |
 | `src/terminal/responseGuard.ts` | `ResponseLeakGuard` + `looksLikeTerminalResponse`: drops terminal-query reply tails the stdin parser split into key events, so they are never typed into the pane |
 | `src/terminal/paneState.ts` | `classifyPaneState` + `PaneState`: structured state probe (`prompt`/`continuation`/`running`/`password-prompt`/`fullscreen`/`unknown`) over the LIVE screen grid, plus `paneStateRefusal`/`formatPaneEvidence` (pure, never throws) |
@@ -157,7 +158,10 @@ Bun.Terminal (PTY)  --data callback-->  rewrite indexed SGR -> scan
   ([`agent.md`](agent.md) "Sudo").
 - Default shell: the config `shell` value (`$SHELL`, fallback `/bin/zsh` — see
   [`config.md`](config.md)).
-- `maxScrollback` defaults to 10000 (the renderable's native scrollback).
+- **`maxScrollback` is a byte budget, not lines** (OpenTUI's own 10_000-byte default keeps
+  only ~1_000 short lines). Sensus passes `DEFAULT_PANE_SCROLLBACK_BYTES` (10 MB, Ghostty's
+  default) so the pane retains thousands of rows; the client's `TerminalScrollback`
+  measures the real history depth for the scrollbar (see [Scrollbar](#scrollbar-client)).
 
 ### Shell integration (cwd + prompt bindings)
 
@@ -365,7 +369,34 @@ Contract: **never throws and never unbounded**.
   lines, clamped to the tool's hard cap of 5000 (default 500).
 - The **native scrollback** held by the embedded VT has no read API, so deep history for
   the agent comes from our bounded plain-text ring (cap 5000 lines), not from the VT's
-  scrollback. Wheel scrollback is handled natively by the renderable.
+  scrollback. Wheel scrollback is handled natively by the renderable, macOS-accelerated
+  by the client hook; the user-facing scrollbar is reconstructed below.
+
+### Scrollbar (client)
+
+The embedded VT exposes no "where am I" getter — only `scroll(delta)` and the composed
+screen — so `src/terminal/scrollback.ts` (`TerminalScrollback`, renderer-free) reconstructs
+the geometry for the overlay bar that [`ui/components/TerminalPane.tsx`](ui.md) mounts:
+
+- **Calibration** measures the exact history depth: scroll to the top, then binary-search
+  the first row where scrolling down one more row leaves the composed *screen* unchanged
+  (a pin-to-bottom probe driven by the client's char-buffer hash). It is cursor-independent,
+  so an app that hides the cursor or parks it mid-screen cannot fool it, and a no-op
+  viewport (tests/fakes) degrades to an empty range in one probe.
+- **Tracking** keeps the viewport row between calibrations. `RemoteTerminalSession`
+  installs a per-renderable hook over the native scroll call
+  (`installTerminalWheelScroll`) that scales the wheel's ±3-row fallback with
+  `MacOSScrollAccel` (matching the chat list) and feeds every native move to the
+  controller; `scrollTo(position)` is the scrollbar drag/click route, and output/resize
+  only mark the geometry stale. `info()` re-measures at most every 2.5 s while pinned,
+  800 ms while scrolled, and a scroll action may force one after 400 ms — all synchronous,
+  so the viewport is restored before the next frame.
+- **Rendering:** a width-1 `ScrollBarRenderable` overlays the terminal's last column
+  (z-index above the buffered VT, `focusable: false` so a drag never steals the pane's
+  keyboard, transparent track so only the thumb covers cells, thumb = the theme
+  `scrollbar` token falling back to muted). It auto-hides while there is no history and
+  while an alternate-screen app owns the VT. `TerminalPane` polls `session.scrollInfo()`
+  at ~8 Hz; `session.scrollTo()` maps a drag/click back to the VT.
 
 ## Cursor
 
@@ -528,7 +559,11 @@ The sidebar and theme tokens are unaffected: they still derive from OSC 4/10/11 
   the instance (see "Input & focus") — its `physicalKey()` has no function-key mapping. The
   patch is required until OpenTUI learns them.
 - **The embedded VT's scrollback has no read API** — agent deep-capture reads our bounded
-  plain-text ring, not the VT's scrollback.
+  plain-text ring, not the VT's scrollback, and the pane scrollbar's geometry is
+  reconstructed by `TerminalScrollback` (relative scrolls + a screen-unchanged probe),
+  never read from the VT. `maxScrollback` is a **byte** budget: the 10_000-byte OpenTUI
+  default is ~1_000 short lines, so the client passes `DEFAULT_PANE_SCROLLBACK_BYTES`
+  (10 MB).
 - **The embedded VT ignores the host palette, freezes colors, defaults to black, and its
   width-reflow is fragile** — `rendererSetPaletteState` has no effect on the renderable
   (verified). Pane fidelity comes from the `sgr.ts` output rewrite to truecolor plus the

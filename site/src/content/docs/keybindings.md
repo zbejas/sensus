@@ -53,6 +53,7 @@ Everything clickable has a keyboard equivalent:
 - Tab bar or rail: select a tab, close it with its `×`, or open `+ new tab`; clicking the active tab returns focus to the terminal.
 - Status bar chips: cycle tabs, open the agent picker, cycle the approval mode, open the model picker, open the context inspector, cycle the thinking mode, open the MCP manager, and revoke session trust.
 - Pane divider: drag to resize the chat.
+- Terminal scrollbar: drag or click the thin bar on the pane's right edge to scroll the shell's history; it appears once there is history and hides again while a full-screen app (like vim) owns the pane. The mouse wheel also scrolls it, speeding up during a fast wheel burst.
 - Chat scrollbar: drag or click to scroll; a code-block command line pastes into the terminal on one click and runs on a second click within a moment.
 - Selection: drag over the terminal or a chat message to copy it; right-click re-copies the current selection.
 

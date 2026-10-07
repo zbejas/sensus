@@ -27,13 +27,14 @@ import { installFunctionKeyEncoding, type KeyAction } from "./keys.ts"
 import { PanePainter } from "./paneBg.ts"
 import { PtySession, type PtySessionOptions, type TerminalStatus } from "./ptySession.ts"
 import { classifyPaneState, type PaneState } from "./paneState.ts"
+import { DEFAULT_PANE_SCROLLBACK_BYTES } from "./scrollback.ts"
 import type { PanePalette, Rgb } from "./sgr.ts"
 
 export type { TerminalStatus } from "./ptySession.ts"
 
 /** Options for spawning a TerminalSession (a PtySession + renderable extras). */
 export interface TerminalSessionOptions extends PtySessionOptions {
-  /** Native scrollback depth kept by the renderable (default 10000). */
+  /** Native scrollback budget in bytes (default 10_000_000). */
   maxScrollback?: number
 }
 
@@ -96,7 +97,7 @@ export class TerminalSession {
       renderable = new EmbeddedTerminalRenderable(ctx, {
         cols,
         rows,
-        maxScrollback: opts.maxScrollback ?? 10000,
+        maxScrollback: opts.maxScrollback ?? DEFAULT_PANE_SCROLLBACK_BYTES,
         // Repaint the VT's opaque-black default background with the theme
         // background, and remap frozen theme/palette colors to the current ones,
         // on every composed frame. This is what keeps the pane themed across

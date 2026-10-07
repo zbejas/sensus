@@ -125,11 +125,36 @@ describe("sensus app shell (in-tmux smoke)", () => {
 
         // 3. Native scrollback: wheel up reveals lines above the live viewport.
         //    Paced ~20ms — opentui coalesces rapid same-coordinate wheel events.
-        //    The embedded VT has no scroll indicator, so the older line itself
-        //    is the proof: live shows ~N015..N060, so N010 is scrollback-only.
+        //    The embedded VT has no scroll API, so the older line itself is the
+        //    proof: live shows ~N015..N060, so N010 is scrollback-only.
         await typeText("seq -f 'N%03g' 1 60")
         await pressKey("Enter")
         await waitFor(async () => (await capture()).includes("N060"))
+        // 3a. The overlay scrollbar grows a thumb once the pane has history
+        //     (the bar's own calibration throttles a pinned refresh, so wait).
+        const paneBarColumn = async (): Promise<number> => {
+          const rows = (await capture()).split("\n")
+          for (const line of rows) {
+            if (!line.includes("terminal") || !line.includes("╮")) continue
+            const corner = line.indexOf("╮")
+            if (corner > 1) return corner - 1
+          }
+          return -1
+        }
+        const barX = await paneBarColumn()
+        expect(barX).toBeGreaterThan(0)
+        const findTermThumb = async (): Promise<{ x: number; y: number } | null> => {
+          const rows = (await capture()).split("\n")
+          // Bottom-most thumb row: grabbing the thumb's bottom and dragging to
+          // the top moves the whole thumb to the head of the track.
+          for (let y = rows.length - 1; y >= 0; y--) {
+            const cell = (rows[y] ?? "").charAt(barX)
+            if ("█▀▄".includes(cell)) return { x: barX, y }
+          }
+          return null
+        }
+        await waitFor(async () => (await findTermThumb()) !== null, 15000, 100, "scrollbar thumb")
+        console.log("[app] pane scrollbar thumb appears with history")
         for (let i = 0; i < 3; i++) {
           await sendHexToUI(sgrWheelSeq(true, 10, 10))
           await Bun.sleep(20)
@@ -139,6 +164,22 @@ describe("sensus app shell (in-tmux smoke)", () => {
           return out.includes("N010") && !out.includes("N060")
         })
         console.log("[app] scrollback wheel shows older lines")
+        // 3b. Dragging the thumb to the top jumps the viewport to the oldest
+        //     line; the drag must also leave focus in the pane (the typing
+        //     steps below prove it).
+        const thumb = await findTermThumb()
+        expect(thumb).not.toBeNull()
+        const tx = thumb!.x
+        await sendHexToUI(sgrPress(tx, thumb!.y))
+        await Bun.sleep(150)
+        await sendHexToUI(`\x1b[<32;${tx + 1};3M`)
+        await Bun.sleep(150)
+        await sendHexToUI(sgrRelease(tx, 2))
+        await waitFor(async () => {
+          const out = await capture()
+          return out.includes("N001") && !out.includes("N060")
+        })
+        console.log("[app] scrollbar drag jumps to the top")
         // Wheel back to the bottom re-arms live follow (typing does NOT exit
         // the native scrollback — that was tmux copy-mode behavior).
         for (let i = 0; i < 5; i++) {

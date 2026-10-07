@@ -84,7 +84,7 @@ default, and the global hotkey layer is re-installed immediately. Actions: `focu
 | `Ctrl+Shift+V` / `Alt+V` | paste the system clipboard into the focused surface | `paste-image`; adapts to what the clipboard holds — image bytes attach to the chat draft, a copied file list attaches image files and pastes other paths as text, plain text goes to the chat draft (or the pane as a bracketed paste); requires a host clipboard tool; `/image <path>` is the file fallback ([`agent.md`](agent.md) "Images") |
 | `Shift+Enter` / `Ctrl+Enter` / `Ctrl+J` | newline in the chat input | `Shift+Enter` is reported by the kitty protocol or by xterm `modifyOtherKeys` level 2 (both pushed/enabled at boot); `Ctrl+Enter` arrives as linefeed without them |
 | `Alt+Enter` | newline (idle) / the other busy-send mode (streaming) | while a reply streams, Enter applies `chat.busySend` and Alt+Enter applies the other mode (docs/config.md "chat"); when idle it stays the newline fallback |
-| wheel (terminal, app-mouse off) | native scrollback (3 lines/notch) | wheel back to the bottom re-follows live |
+| wheel (terminal, app-mouse off) | native scrollback (macOS-accelerated; 3 rows/notch base) | wheel back to the bottom re-follows live; drag or click the pane's overlay scrollbar for fast traversal |
 | wheel (chat message list) | scroll the transcript (macOS-accelerated) | drag the vertical scrollbar thumb for fast traversal |
 | drag-select (terminal) | copy via OSC52 | app-mouse off |
 | click (chat code line) | paste that command into the visible pane | single click pastes the clicked line without Enter; clicking the same line again within 400ms presses Enter to run it (no-tools copy-paste behavior). The language label and hint rows are inert |
@@ -261,6 +261,7 @@ trigger chat row actions.
 | status bar: `trust:<pattern>` | revoke all session-scoped approval trust |
 | status bar: `prefix…` hint / size warning | nothing (inert) |
 | pane divider (the invisible gap between the pane card and the chat card) | drag to resize the chat (min 30 / 50%), like `Alt+,`/`Alt+.`; shows an accent `│` only on hover |
+| pane: the overlay scrollbar thumb/track (right edge, when history exists) | drag (or click) to scroll the shell's scrollback; hidden without history and while a full-screen app owns the pane |
 | sidebar: anywhere in the chat | focus the sidebar |
 | sidebar: the vertical scrollbar thumb/track | drag (or click) to scroll the message list |
 | sidebar: a message label's `⧉ copy` | copy the message's raw text (OSC52) |

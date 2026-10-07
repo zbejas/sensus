@@ -14,6 +14,7 @@
  *   renderable.onData (keys/mouse/DA replies) → WS terminal.input (base64)
  *   renderable.onTerminalResize → WS terminal.resize
  *   renderable screen grid → WS terminal.facts (debounced, D2)
+ *   renderable native scroll → TerminalScrollback geometry + MacOSScrollAccel wheel
  *   terminal.attached { replay, replayFrom, cursor, truncated, resetAlt } → replay → renderable
  *   terminal.status / terminal.exit → local status mirror + death
  *
@@ -28,15 +29,78 @@
  * or a renderable failure is reported through `onError`, never thrown.
  */
 
-import { EmbeddedTerminalRenderable, PasteEvent, type RenderContext } from "@opentui/core"
+import { EmbeddedTerminalRenderable, MacOSScrollAccel, PasteEvent, type RenderContext } from "@opentui/core"
 import { encodeKeyAction, installFunctionKeyEncoding, type KeyAction } from "../terminal/keys.ts"
 import { PanePainter } from "../terminal/paneBg.ts"
 import { classifyPaneState, type PaneState } from "../terminal/paneState.ts"
 import type { TerminalStatus } from "../terminal/ptySession.ts"
 import { StreamScanner } from "../terminal/scan.ts"
+import {
+  DEFAULT_PANE_SCROLLBACK_BYTES,
+  TerminalScrollback,
+  type ScrollbackViewport,
+  type TerminalScrollInfo,
+} from "../terminal/scrollback.ts"
 import { SgrColorRewriter, type PanePalette, type Rgb } from "../terminal/sgr.ts"
 import { base64ToBytes, type WsClient } from "./wsClient.ts"
 import type { ShellAttachResult, ShellRole } from "../daemon/index.ts"
+
+/** The renderable's native surface we reach through (mirrors the internals
+ * `EmbeddedTerminalRenderable` uses itself; OpenTUI types them private). */
+interface EmbeddedTerminalInternals {
+  lib?: {
+    embeddedTerminalScroll?: (handle: number, delta: number) => void
+    embeddedTerminalCompose?: (handle: number, ptr: unknown, x: number, y: number) => void
+  } | null
+  handle?: number | null
+  frameBuffer?: { ptr: unknown; buffers: { char: Uint32Array } } | null
+}
+
+/**
+ * Wrap the renderable's native scroll call so wheel scrolling accelerates
+ * (macOS-style, matching the chat list) and the scrollback controller sees
+ * every native viewport move. The wrapper is installed on this renderable's
+ * private `lib` reference only — the shared native lib object of other
+ * renderables is untouched. Returns an uninstaller. Exported for unit tests.
+ */
+export function installTerminalWheelScroll(
+  renderable: EmbeddedTerminalRenderable,
+  onScroll: (delta: number) => void,
+): () => void {
+  const internals = renderable as unknown as EmbeddedTerminalInternals
+  const nativeLib = internals.lib
+  const nativeScroll = nativeLib?.embeddedTerminalScroll
+  if (nativeLib == null || typeof nativeScroll !== "function") return () => {}
+  const original = nativeScroll.bind(nativeLib)
+  const accel = new MacOSScrollAccel()
+  const boundMethods = new Map<PropertyKey, unknown>()
+  const wrapped = (handle: number, delta: number): void => {
+    // The renderable's fallback is always ±3 rows; scale the burst.
+    const multiplier = accel.tick()
+    const magnitude = Math.max(1, Math.round(Math.abs(delta) * multiplier))
+    const scaled = delta < 0 ? -magnitude : magnitude
+    onScroll(scaled) // may calibrate or reposition; the model matches the VT
+    original(handle, scaled)
+  }
+  const proxy = new Proxy(nativeLib, {
+    get(target, prop) {
+      if (prop === "embeddedTerminalScroll") return wrapped
+      const value = Reflect.get(target, prop, target)
+      if (typeof value !== "function") return value
+      // Cache the bound method: `lib` is on hot paths (write per chunk,
+      // compose per frame) and a fresh bind per access would allocate.
+      const cached = boundMethods.get(prop)
+      if (cached !== undefined) return cached
+      const bound = value.bind(target)
+      boundMethods.set(prop, bound)
+      return bound
+    },
+  })
+  ;(internals as { lib: unknown }).lib = proxy
+  return () => {
+    if (internals.lib === proxy) internals.lib = nativeLib
+  }
+}
 
 /** Clamp a cell dimension to a positive integer. */
 function normalizeSize(n: number): number {
@@ -60,7 +124,8 @@ export interface RemoteTerminalSessionOptions {
   rows: number
   /** Renderer context for the embedded VT (omit only with `createRenderable`). */
   renderer?: RenderContext
-  /** Native scrollback depth (default 10000). */
+  /** Native scrollback budget in bytes (default 10_000_000; the renderable's
+   * own 10_000 default holds only ~1_000 short lines). */
   maxScrollback?: number
   /** Initial palette for the SGR rewrite. */
   palette?: PanePalette | null
@@ -95,6 +160,8 @@ export class RemoteTerminalSession {
   private readonly painter: PanePainter
   private readonly rewriter = new SgrColorRewriter()
   private readonly scanner = new StreamScanner()
+  private readonly scrollback: TerminalScrollback
+  private readonly uninstallScrollHook: () => void
   private readonly factsDebounceMs: number
   private readonly onError: ((message: string) => void) | undefined
   private readonly exitCallbacks: Array<(code: number | null) => void> = []
@@ -134,6 +201,52 @@ export class RemoteTerminalSession {
     this.rewriter.setPalette(opts.palette ?? null)
     this.rewriter.setBoldBright(opts.boldBright ?? true)
     this.rewriter.setDefaults(opts.defaultFg ?? null, opts.defaultBg ?? null)
+
+    // Scrollbar geometry (docs/terminal-layer.md "Capture & scrollback"): the
+    // controller calibrates against the VT through a renderer-free seam; the
+    // wheel hook wraps this renderable's own native scroll call. A fake
+    // renderable (tests) has no internals: the adapter degrades to a no-op.
+    const internals = renderable as unknown as EmbeddedTerminalInternals
+    const nativeLib = internals.lib
+    const viewport: ScrollbackViewport = {
+      scroll: (delta) => {
+        try {
+          const handle = internals.handle
+          if (nativeLib == null || typeof nativeLib.embeddedTerminalScroll !== "function" || typeof handle !== "number") return
+          nativeLib.embeddedTerminalScroll(handle, delta)
+        } catch {
+          // A detached renderable never throws into the UI.
+        }
+      },
+      compose: () => {
+        try {
+          const handle = internals.handle
+          const frameBuffer = internals.frameBuffer
+          if (nativeLib == null || typeof nativeLib.embeddedTerminalCompose !== "function" || typeof handle !== "number" || frameBuffer == null) return
+          nativeLib.embeddedTerminalCompose(handle, frameBuffer.ptr, 0, 0)
+        } catch {
+          // ignore
+        }
+      },
+      fingerprint: () => {
+        try {
+          const chars = internals.frameBuffer?.buffers.char
+          if (chars === undefined) return 0
+          let hash = 0x811c9dc5
+          for (let i = 0; i < chars.length; i++) hash = Math.imul(hash ^ (chars[i] ?? 0), 0x01000193)
+          return hash >>> 0
+        } catch {
+          return 0
+        }
+      },
+      rows: () => this.rows,
+    }
+    this.scrollback = new TerminalScrollback({
+      viewport,
+      maxScrollbackBytes: opts.maxScrollback ?? DEFAULT_PANE_SCROLLBACK_BYTES,
+      altScreen: () => this.latest?.alternateOn ?? false,
+    })
+    this.uninstallScrollHook = installTerminalWheelScroll(renderable, (delta) => this.scrollback.noteNativeScroll(delta))
     this.subscribeEvents()
   }
 
@@ -145,7 +258,7 @@ export class RemoteTerminalSession {
   static create(opts: RemoteTerminalSessionOptions): RemoteTerminalSession {
     const cols = normalizeSize(opts.cols)
     const rows = normalizeSize(opts.rows)
-    const maxScrollback = opts.maxScrollback ?? 10000
+    const maxScrollback = opts.maxScrollback ?? DEFAULT_PANE_SCROLLBACK_BYTES
 
     const painter = new PanePainter()
     painter.setPalette(opts.palette ?? null)
@@ -217,6 +330,7 @@ export class RemoteTerminalSession {
     const out = this.rewriter.transform(bytes)
     this.scanner.push(out)
     this.renderableRef.write(out)
+    this.scrollback.noteOutput()
     this.scheduleFacts()
   }
 
@@ -457,6 +571,23 @@ export class RemoteTerminalSession {
     return all.slice(all.length - n).join("\n")
   }
 
+  // -- scrollback (the pane scrollbar) ----------------------------------------
+
+  /**
+   * Current scrollbar geometry (calibrated history depth + viewport row). The
+   * UI polls this for the active tab and renders it into the pane's overlay
+   * scrollbar; never throws.
+   */
+  scrollInfo(): TerminalScrollInfo {
+    return this.scrollback.info()
+  }
+
+  /** Jump the pane viewport top to `position` rows from the addressable top
+   * (the scrollbar's drag/click route; clamped by the controller). */
+  scrollTo(position: number): void {
+    this.scrollback.scrollTo(position)
+  }
+
   // -- input ------------------------------------------------------------------
 
   /** Send one key action (literal text or named keys) to the daemon shell. */
@@ -507,6 +638,7 @@ export class RemoteTerminalSession {
     if (changed) {
       void this.ws.terminal.resize({ shellId: this.shellId, cols: c, rows: r }).catch((e: unknown) => this.report(e))
     }
+    this.scrollback.noteResize()
     this.scheduleFacts()
   }
 
@@ -582,6 +714,11 @@ export class RemoteTerminalSession {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    try {
+      this.uninstallScrollHook()
+    } catch {
+      // ignore: the renderable may already be gone
+    }
     if (this.factsTimer !== null) {
       clearTimeout(this.factsTimer)
       this.factsTimer = null

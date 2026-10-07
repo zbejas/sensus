@@ -35,7 +35,7 @@ delete via `DELETE …`, the saved-session Context Inspector via `GET …/contex
 | File | Purpose |
 |---|---|
 | `components/App.tsx` | Root layout + the single key/mouse dispatch point; owns tab lifecycle wiring, the single config-change surface list, and the ephemeral chat-only view (Alt+Home: pane/rail hidden, chat full-width) |
-| `components/TerminalPane.tsx` | Hosts the active tab's `EmbeddedTerminalRenderable` (native VT screen, cursor, scrollback) in an `overflow: hidden` box so the terminal is scissor-clipped to its card; mirrors focus |
+| `components/TerminalPane.tsx` | Hosts the active tab's `EmbeddedTerminalRenderable` (native VT screen, cursor, scrollback) in an `overflow: hidden` box so the terminal is scissor-clipped to its card; mirrors focus; mounts the overlay scrollbar and polls the session's `scrollInfo()` for its geometry |
 | `components/PaneDivider.tsx` | The 1-column gap between the terminal card and the sidebar card; invisible until hovered/dragged (then an accent `│`), pointer-captured drag reports a clamped sidebar width |
 | `components/ChatSidebar.tsx` | Chat orchestrator: scrollbox wiring, chat-derived memos, slash menu, input box, render tree (rows split out to `components/chat/*`) |
 | `components/chat/MessageBlock.tsx` | One message card: label, image chips, body/markdown, fenced code, thinking block |
@@ -143,7 +143,14 @@ also:
 active session's renderable and `container.add` reparents it on tab switch, so each tab's
 native VT state (screen, cursor, scrollback) is preserved. It mirrors the store's focus onto
 the renderable (`focus()`/`blur()`); there is no frame composition, span color resolution,
-or cursor overlay in the Solid layer.
+or cursor overlay in the Solid layer. The same box also holds the **overlay scrollbar**: a
+width-1 `ScrollBarRenderable` absolutely positioned over the terminal's last column
+(z-index above the buffered VT; `focusable: false` so dragging it never steals the pane's
+keyboard; transparent track, thumb = the theme `scrollbar` token). It polls
+`session.scrollInfo()` (~8 Hz) — the calibrated history depth + viewport row from
+[`terminal-layer.md`](terminal-layer.md) — auto-hides without history and on the alternate
+screen, and maps drag/click to `session.scrollTo()`. The bar never reserves a PTY column:
+the shell keeps its full width and the transparent track shows the text behind it.
 
 ## Chat rendering
 

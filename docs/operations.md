@@ -450,7 +450,10 @@ not "package.json was touched", and a failed run can be re-run without publishin
 
   Each job asserts the binary runs and reports the `package.json` version (on macOS this is
   also the ad-hoc code-signature guard) and that `init --create-config` works, then uploads
-  the binary plus its sha256.
+  the binary plus its sha256 with `retention-days: 7` — `publish` downloads them minutes
+  later, and the user-facing copies live on the Release. The week covers re-running only the
+  failed `publish` job after a transient failure; past that, a full workflow re-run rebuilds
+  the artifacts (`version` keeps re-runs idempotent).
 - `publish` — collects the artifacts into `checksums.txt` and runs `gh release create
   "v<version>" --target <sha> --generate-notes`, attaching the four binaries, the checksums
   and `LICENSE`/`NOTICE`. The tag is created by the release, pointing at the version-bump
@@ -478,7 +481,9 @@ Releases and is overridable with `SENSUS_RELEASES_BASE_URL`.
   guard: `scripts/build.ts` re-signs ad-hoc, and a rejected signature makes the kernel
   SIGKILL `dist/sensus --version` (`Killed: 9`). Ubuntu never exercises that path. It also
   checks the `--version` / `init --create-config` round-trip and uploads the macOS binary as
-  an artifact.
+  an artifact with `retention-days: 1` — nothing consumes it (it exists for debugging), and
+  the 90-day default would pile ~28 MB into the account's shared Actions storage on every
+  push to `main`.
 - `site` (`bun run check` + `bun test` + `bun run build` under `site/`, Bun 1.4.2 plus Node
   22.12 for Astro's build floor) — the landing site's gates. Cloudflare Pages builds and
   deploys the same directory on push (see "Website").

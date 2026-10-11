@@ -148,6 +148,11 @@ jobs:
             dist/${{ matrix.asset }}
             dist/${{ matrix.asset }}.sha256
           if-no-files-found: error
+          # `publish` downloads these minutes later; the user-facing copies
+          # live on the Release. A week still covers re-running only the
+          # failed publish job after a transient failure, without letting
+          # artifacts pile up against the 90-day default.
+          retention-days: 7
 
   publish:
     name: publish v${{ needs.version.outputs.version }}

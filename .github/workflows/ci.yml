@@ -130,3 +130,7 @@ jobs:
         with:
           name: sensus-macos
           path: dist/sensus
+          # Nothing consumes this artifact — it exists for debugging only. The
+          # repo default is 90 days, which piles ~28 MB into the account's
+          # shared Actions storage on every push to main; one day is enough.
+          retention-days: 1

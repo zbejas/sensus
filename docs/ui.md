@@ -211,9 +211,13 @@ the shell keeps its full width and the transparent track shows the text behind i
   approval/option rows) highlights under the pointer with the theme selection fill and
   flashes the accent block on press; the label's `⧉ copy` affordance and the `agent:<name> ⇄`
   chip do the same. Non-interactive body rows bind no handlers, so they never light up.
-  Clickable rows are `selectable={false}` — opentui starts a text selection on a left
-  mousedown over a selectable `<text>`, so without it a click on a button would also begin
-  selecting its text. Reasoning/prose body rows stay selectable.
+  Approval/option and action rows are `selectable={false}` — opentui starts a text selection
+  on a left mousedown over a selectable `<text>`, so a click on a button must not begin
+  selecting its text. Reasoning/prose body rows, message **labels** and fenced **code rows**
+  stay selectable: a drag copies the selected text. Code-row paste/run is handled on
+  mouseup and skipped when the gesture was a drag (a plain click still pastes; the second
+  click of a double-click still runs); clicking a label affordance clears the zero-length
+  selection mousedown just started.
 - **Thinking.** Reasoning renders as a collapsible block; `/thinking` sets the session
   default, `Alt+T` (or a header click — the live `⠋ Thinking` header or the settled
   `+/− Thought` header) toggles a block. When the block is hidden, only the one-line
@@ -242,7 +246,10 @@ the shell keeps its full width and the transparent track shows the text behind i
   state machine. Word wrapping is shared by the forward and inverse maps
   (`wrapEditorLine`): a line breaks at whitespace (the space stays at the row end so no
   character is dropped) and a word wider than the row is hard-split — words are never
-  split mid-word. Clicks map a visual (row, col) back to the logical cursor. `Ctrl+←`/`→`
+  split mid-word. Clicks map a visual (row, col) back to the logical cursor. A **drag**
+  over the draft selects its text and copies it on release (the placeholder hint is not
+  selectable); the next editing/caret key clears the renderer selection, since the editor
+  itself has no selection model. `Ctrl+←`/`→`
   jump by whitespace-delimited word (readline `backward-word`/`forward-word`, crossing
   logical lines); plain arrows move one character. The slash menu
   is `position: "absolute"` above the input.

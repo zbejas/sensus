@@ -967,6 +967,20 @@ describe("sensus chat (in-tmux smoke)", () => {
         const doubleClick = sgrPress(codeCol + 2, codeRow) + sgrRelease(codeCol + 2, codeRow)
         await h.sendHexTo(`${doubleClick}${doubleClick}`, "m3notools:0")
         await h.waitFor(async () => (await cap2()).includes("PLAIN-REPLY-OK"), "double-click runs the command", { timeoutMs: 8000, dump: cap2 })
+        // 6c. A DRAG over a code line is a selection, not a paste: the paste
+        //     toast must not fire and the selection copies. `End` (chat focus)
+        //     then drops the selection before the terminal-exit steps.
+        await waitFor(async () => !(await cap2()).includes("command pasted"), "paste toast expires", 5000)
+        await h.sendHexTo(sgrPress(codeCol + 2, codeRow), "m3notools:0")
+        for (let i = 1; i <= 5; i++) {
+          await h.sendHexTo(`\x1b[<32;${codeCol + 3 + i};${codeRow + 1}M`, "m3notools:0")
+          await Bun.sleep(20)
+        }
+        await h.sendHexTo(sgrRelease(codeCol + 9, codeRow), "m3notools:0")
+        await waitFor(async () => (await cap2()).includes("copied to clipboard"), "code drag copies", 5000)
+        expect((await cap2()).includes("command pasted")).toBe(false)
+        await h.keyTo("m3notools:0", "End") // clear the selection (chat focus)
+        await Bun.sleep(150)
         console.log("[chat] code line click: paste + double-click run ok")
 
         // 7. Clean exits for both sessions.
@@ -1279,9 +1293,25 @@ describe("sensus chat (in-tmux smoke)", () => {
         await Bun.sleep(150)
         await typ("X")
         await waitFor(async () => (await cap()).includes("HELLOXWORLD"), "caret insert", 5000)
-        await key("C-c")
+        // 9b. A DRAG over the draft selects + copies it (the input is a
+        //     selectable surface), while the click above still placed the
+        //     caret. A caret key then drops the selection so Ctrl+C keeps its
+        //     draft-clear meaning.
+        const dragStart = await h.colOf("m7:0", draftRow, "HELLOXWORLD")
+        expect(dragStart).toBeGreaterThanOrEqual(0)
+        await h.sendHexTo(sgrPress(dragStart, draftRow), "m7:0")
+        for (let i = 1; i <= 6; i++) {
+          await h.sendHexTo(`\x1b[<32;${dragStart + i + 1};${draftRow + 1}M`, "m7:0")
+          await Bun.sleep(20)
+        }
+        await h.sendHexTo(sgrRelease(dragStart + 6, draftRow), "m7:0")
+        await waitFor(async () => (await cap()).includes("copied to clipboard"), "input drag copies", 5000)
+        await waitFor(async () => !(await cap()).includes("copied to clipboard"), "copy toast expires", 5000)
+        await key("End") // clears the live selection, keeps the draft
         await Bun.sleep(150)
-        console.log("[chat] input click-to-caret ok")
+        await key("C-c")
+        await waitFor(async () => !(await cap()).includes("HELLOXWORLD"), "C-c clears draft", 5000)
+        console.log("[chat] input drag-select + caret/ctrl+c separation ok")
 
         // 10. Zero bg SGRs (overlays closed, terminal focus) — must run
         //     BEFORE the reverse-video row, which paints a persistent bg bar.

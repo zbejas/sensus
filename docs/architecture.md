@@ -377,11 +377,14 @@ dispatch seam (keymap → prefix → focus) is in [`keybindings.md`](keybindings
 1. Mouse/wheel/click-to-focus are native: the focused renderable forwards them to the PTY
    and emits them through `onData`. The renderer's `focused_renderable` event mirrors a
    click-focus into the store. There is no manual re-encoding layer.
-2. Only two surfaces are selectable — the terminal pane (when the inner app is not in
-   app-mouse mode) and the chat message list; every chrome/overlay/menu text is
-   `selectable={false}`, so clicking a menu can never start (and copy) a selection. A
-   drag-release on a selectable surface copies the selection + toast; `Ctrl+C` /
-   `Ctrl+Shift+C` copy it when a selection exists (otherwise `Ctrl+C` reaches the shell as
+2. Selectable surfaces — the terminal pane (when the inner app is not in app-mouse mode),
+   the chat message list (body prose, labels and code rows) and the chat input draft —
+   start a drag selection; action/approval rows, chrome, overlays, pickers, menus and the
+   slash menu are `selectable={false}`, so clicking a button can never start (and copy) a
+   selection. A drag-release on a selectable surface copies the selection + toast; chat
+   code rows keep click-to-paste (mouseup, skipped for a drag) and the input keeps
+   click-to-place-caret; an editing/caret key clears the selection. `Ctrl+C` /
+   `Ctrl+Shift+C` copy it when a non-empty selection exists (otherwise `Ctrl+C` reaches the shell as
    `^C`).
 
 ### Chat turn

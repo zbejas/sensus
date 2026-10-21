@@ -939,6 +939,17 @@ export function App(props: AppProps): JSX.Element {
     // focus transition must never let the same key hit both regions).
     key.stopPropagation?.()
     key.preventDefault?.()
+    // The custom input has no selection model of its own: a mouse selection
+    // over the draft (or a transcript row) is a copy snapshot. Clear it before
+    // an editing/caret key lands, or the renderer highlight would stay pinned
+    // to cells the edit just moved. Ctrl+C/Ctrl+Shift+C never reach this path
+    // when a non-empty selection exists (the selection-copy layer consumes
+    // them), so re-copying the selection stays possible.
+    try {
+      renderer.clearSelection()
+    } catch {
+      // selection clear must never take the TUI down
+    }
     handleChatKey(key)
   }
 
@@ -994,7 +1005,17 @@ export function App(props: AppProps): JSX.Element {
   // reaching the terminal pane as ^C when nothing is selected.
   if (props.sensusKeymap) {
     const offSelectionCopy = installSelectionCopyLayer(props.sensusKeymap, {
-      gate: () => !tooSmall() && !store.inputCaptured() && !prefix.isArmed && renderer.hasSelection,
+      // A zero-length selection is a plain click, not a copy target: keep
+      // Ctrl+C falling through to the chat (draft clear) / the pane (^C).
+      gate: () => {
+        if (tooSmall() || store.inputCaptured() || prefix.isArmed) return false
+        try {
+          const selection = renderer.getSelection()
+          return selection !== null && selection.getSelectedText().length > 0
+        } catch {
+          return false
+        }
+      },
       onCopy: copySelectionToClipboard,
     })
     onCleanup(offSelectionCopy)

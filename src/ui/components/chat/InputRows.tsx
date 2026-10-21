@@ -125,8 +125,12 @@ export function InputRow(props: {
     }
     return out
   })
+  // Selectable so a drag over the draft copies it (docs/ui.md "Input"). A
+  // plain click still places the caret: opentui starts a zero-length selection
+  // on mousedown and our handler runs in the same dispatch. The placeholder is
+  // a hint, not draft text — it must never be selectable.
   return (
-    <text selectable={false} style={{ fg: t().fg, ...bgStyle(t()) }} onMouseDown={props.onMouseDown}>
+    <text selectable={props.placeholder.length === 0} style={{ fg: t().fg, ...bgStyle(t()) }} onMouseDown={props.onMouseDown}>
       <For each={spans()}>
         {(s) => <span style={{ fg: s.fg, bg: s.bg ?? (t().bg ?? "transparent") }}>{s.text}</span>}
       </For>

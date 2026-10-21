@@ -4,7 +4,7 @@
  * message list is rendered through these; MessageBlock composes them.
  */
 
-import { type JSX } from "@opentui/solid"
+import { type JSX, useRenderer } from "@opentui/solid"
 import { MouseButton, type MouseEvent } from "@opentui/core"
 import { createMemo, createSignal, onCleanup, Show, For } from "solid-js"
 import { theme, type ThemeColor } from "../../../theme/theme.ts"
@@ -45,17 +45,23 @@ function SegView(props: { seg: Seg; bg: ThemeColor | null; fgOverride?: ThemeCol
  * handler highlights under the pointer (selection fill) and flashes the accent
  * block on press. Non-interactive rows (RowText) never bind the handlers.
  *
- * `selectable` is off for interactive rows: opentui starts a text selection on
- * every left mousedown over a selectable <text>, so a button would both fire
- * its action AND begin a selection. Non-interactive body rows stay selectable.
+ * `selectable` defaults to off for interactive rows (action rows, approvals):
+ * opentui starts a text selection on every left mousedown over a selectable
+ * <text>, so a button would both fire its action AND begin a selection.
+ * CopyableRow opts back in — a plain click keeps its paste action (handled on
+ * mouseup) while a DRAG selects instead. Non-interactive body rows stay
+ * selectable.
  */
 function InteractiveRow(props: {
   line: MdLine
   bg: string | null
   onMouseDown?: (e: MouseEvent) => void
+  onMouseUp?: (e: MouseEvent) => void
+  /** Override the default (interactive rows are not selectable). */
+  selectable?: boolean
 }): JSX.Element {
   const t = () => theme()
-  const interactive = (): boolean => props.onMouseDown !== undefined
+  const interactive = (): boolean => props.onMouseDown !== undefined || props.onMouseUp !== undefined
   const [fx, setFx] = createSignal<RowFx>("idle")
   // Whether the pointer actually entered this row. The press flash restores
   // hover only when it did: opentui targets `out` at a possibly-stale
@@ -75,7 +81,7 @@ function InteractiveRow(props: {
   const pressed = (): boolean => fx() === "press"
   return (
     <text
-      selectable={!interactive()}
+      selectable={props.selectable ?? !interactive()}
       style={{ fg: view().fg ?? t().fg, bg: view().bg }}
       onMouseOver={() => {
         if (interactive()) {
@@ -99,6 +105,7 @@ function InteractiveRow(props: {
         }
         props.onMouseDown?.(e)
       }}
+      onMouseUp={props.onMouseUp}
     >
       <For each={props.line.segs}>
         {(seg) => <SegView seg={seg} bg={view().bg} fgOverride={pressed() ? t().onAccent : undefined} />}
@@ -113,19 +120,36 @@ export function RowText(props: { line: MdLine; bg: string | null }): JSX.Element
 
 /** A code row: a single click pastes that command into the visible pane (no
  * Enter); a second click within the double-click window presses Enter to run
- * what the first click pasted (M3, docs/ui.md "Prose vs. code"). */
+ * what the first click pasted (M3, docs/ui.md "Prose vs. code"). A DRAG over
+ * the row selects/copies its text instead (copy-on-select), so the paste
+ * action waits for mouseup and is skipped when the gesture was a drag. */
 export function CopyableRow(props: {
   line: MdLine
   bg: string | null
   onCodeClick: (code: string, run: boolean) => void
 }): JSX.Element {
+  const renderer = useRenderer()
   let lastClick: CodeClickState | null = null
   return (
     <InteractiveRow
       line={props.line}
       bg={props.bg}
-      onMouseDown={(e: MouseEvent) => {
+      selectable
+      onMouseUp={(e: MouseEvent) => {
         if (e.button !== MouseButton.LEFT) return
+        // The renderer dispatches `up` BEFORE finishSelection, so the live
+        // selection still carries the anchor/focus pair. A drag (different
+        // cells) is a copy gesture, never a paste.
+        try {
+          const sel = renderer.getSelection()
+          if (sel !== null) {
+            const anchor = sel.anchor
+            const focus = sel.focus
+            if (anchor.x !== focus.x || anchor.y !== focus.y) return
+          }
+        } catch {
+          // selection introspection must never break click-to-paste
+        }
         // Read the line at CLICK time: a streaming fence grows after mount, so
         // a value captured at creation would paste a stale partial line.
         const code = props.line.copyLine ?? ""
@@ -171,9 +195,10 @@ export function ActionRow(props: { line: MdLine; bg: string | null; actions: Car
  * resizes), and every span SETS fg and bg explicitly (a disappearing style
  * prop does not reset; the terminal theme's bg is "transparent").
  *
- * The row is `selectable={false}`: a left mousedown on a selectable <text>
- * also starts a text selection, so clicking `⧉ copy`/`↺ revert` would select
- * the label.
+ * The row stays selectable so a drag can start at the message header and
+ * select the label/body; a left mousedown ON an affordance clears that fresh
+ * selection so clicking `⧉ copy`/`↺ revert` never highlights (or copies) the
+ * label itself.
  */
 export function LabelRow(props: {
   text: string
@@ -186,6 +211,7 @@ export function LabelRow(props: {
    * it behind a confirmation while the agent is working). */
   onRevert?: () => void
 }): JSX.Element {
+  const renderer = useRenderer()
   const t = () => theme()
   // Affordances in render order. Geometry is keyed on (label, width) only —
   // NOT on copyText: the label of a streaming assistant message must not
@@ -233,7 +259,7 @@ export function LabelRow(props: {
   }
   return (
     <text
-      selectable={false}
+      selectable
       style={{ fg: t().fg, bg: props.bg ?? "transparent" }}
       onMouseMove={(e: MouseEvent) => {
         try {
@@ -253,6 +279,15 @@ export function LabelRow(props: {
           const col = leftClickColumn(e) // null on right-click = selection copy
           if (col === null) return
           const key = hitKey(col)
+          // An affordance click is a button, not a selection: drop the
+          // zero-length selection mousedown just started (renderer-level).
+          if (key !== null) {
+            try {
+              renderer.clearSelection()
+            } catch {
+              // selection clear is best-effort
+            }
+          }
           if (key === null) return
           clearPress()
           setPressKey(key)

@@ -68,7 +68,7 @@ default, and the global hotkey layer is re-installed immediately. Actions: `focu
 | `Alt+,` / `Alt+.` | shrink / grow the chat | min 30, max 50% width; resizes the PTY to the new pane width; the pane divider drags to the same bounds |
 | `Alt+M` | open the agent picker | [`agents.md`](agents.md) |
 | `Alt+Y` | toggle approval confirm ⇄ full-auto | same as clicking the approval indicator or `/yolo` |
-| `Ctrl+C` / `Ctrl+Shift+C` | copy the current selection (chat or terminal) | selection-copy layer; without a selection it falls through (`^C` to the pane, or a draft clear in chat) |
+| `Ctrl+C` / `Ctrl+Shift+C` | copy the current selection (chat or terminal) | selection-copy layer; without a non-empty selection it falls through (`^C` to the pane, or a draft clear in chat) |
 | `Alt+T` | toggle the most recent thinking block | per-message override; `/thinking` changes the session default |
 | `Alt+E` | toggle the most recent tool card's output expansion | per-card override; `/details` changes the session default |
 | `Alt+C` | toggle the message card style | `border` (default; rounded outlined card) ⇄ `fill` (solid notched panel); `/cards` also works |
@@ -87,7 +87,8 @@ default, and the global hotkey layer is re-installed immediately. Actions: `focu
 | wheel (terminal, app-mouse off) | native scrollback (macOS-accelerated; 3 rows/notch base) | wheel back to the bottom re-follows live; drag or click the pane's overlay scrollbar for fast traversal |
 | wheel (chat message list) | scroll the transcript (macOS-accelerated) | drag the vertical scrollbar thumb for fast traversal |
 | drag-select (terminal) | copy via OSC52 | app-mouse off |
-| click (chat code line) | paste that command into the visible pane | single click pastes the clicked line without Enter; clicking the same line again within 400ms presses Enter to run it (no-tools copy-paste behavior). The language label and hint rows are inert |
+| drag-select (chat message / input) | copy via OSC52 | body prose, labels, code rows and the draft; a code-row drag copies instead of pasting |
+| click (chat code line) | paste that command into the visible pane | single click pastes the clicked line without Enter; clicking the same line again within 400ms presses Enter to run it (no-tools copy-paste behavior). A DRAG over the line selects/copies instead of pasting. The language label and hint rows are inert |
 | click (tool card header/hint) | toggle output expansion | `/details` for the session default |
 | click (thinking header: `⠋ Thinking` or `+/− Thought`) | toggle the thinking block | `/thinking` for the session default |
 | paste from the outer terminal | forwarded as text to the focused region | an open overlay's edit field / filter receives it; terminal bracketed paste goes to the pane |
@@ -231,13 +232,14 @@ region; the
 same region map drives hover (theme selection fill) and press (accent flash) feedback, so a
 clickable tab or status chip lights up under the pointer. Any click in the chat sidebar focuses
 it. Text selection: only selectable
-surfaces — the terminal pane (app-mouse off) and every chat message row — start a drag
-selection. All chrome, overlays, pickers, menus, the chat input and its slash menu set
+surfaces — the terminal pane (app-mouse off), every chat message row (body, label and code
+rows) and the chat input draft — start a drag selection. Action/approval rows, chrome,
+overlays, pickers, menus and the slash menu set
 `selectable={false}`, so a click can never start (and copy) a selection over them. Dragging
 over a selectable surface copies the selection to the system clipboard (OSC52) on release
 with a toast; right-click copies the current selection; `Ctrl+C`/`Ctrl+Shift+C` re-copy it.
-The selection stays until the next click/drag replaces it. Right/middle clicks never
-trigger chat row actions.
+The selection stays until the next click/drag replaces it or an editing/caret key clears it.
+Right/middle clicks never trigger chat row actions.
 
 | Click | Action |
 |---|---|

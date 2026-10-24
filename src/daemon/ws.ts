@@ -246,6 +246,10 @@ export function createWsEndpoint(deps: WsEndpointDeps): WsEndpoint {
       // the daemon emits for any non-delta event (the tab title reads from meta).
       case "title":
         break
+      // Likewise the compaction flag: `meta.compacting` is the client readout,
+      // and this event is what pushes the final `false` after a compaction.
+      case "compacting":
+        break
       case "plan":
         sendToChat(chatId, "chat.plan", { message: event.message })
         break

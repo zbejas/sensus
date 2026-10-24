@@ -169,6 +169,15 @@ class WsTestClient {
     return this.frames.length
   }
 
+  /** Index of the first buffered frame matching `pred`, or -1 (no waiting). */
+  indexOf(pred: (f: Frame) => boolean, fromIndex = 0): number {
+    for (let i = fromIndex; i < this.frames.length; i++) {
+      const frame = this.frames[i]
+      if (frame !== undefined && pred(frame)) return i
+    }
+    return -1
+  }
+
   request(op: string, params: Frame = {}): Promise<Frame> {
     const id = `r${++this.idc}`
     this.ws.send(JSON.stringify({ type: "req", id, op, ...params }))
@@ -748,6 +757,56 @@ describe("daemon chat meta (P4c-ii)", () => {
       )
       // The model-generated title (not the derived placeholder) replaced it.
       expect(String((titled.meta as Frame).sessionTitle)).not.toBe(derived)
+    } finally {
+      client.close()
+      daemon.cleanup()
+    }
+  }, 30000)
+
+  test("a finished compaction pushes chat.meta with compacting:false", async () => {
+    // Regression: the checkpoint note is emitted while the flag is still true,
+    // so the client saw `compacting:true` last and kept the spinner forever
+    // after the report (nothing else fires on an idle chat). The flag's clear
+    // must ride a `chat.meta` too (docs/daemon-api.md "Engine-derived meta").
+    const daemon = await startTestDaemon()
+    const client = new WsTestClient(wsUrl(daemon.result.tcp.port), auth)
+    try {
+      await client.open
+      await client.event("hello")
+      const opened = await client.request("chat.open", {})
+      const chatId = String((opened.result as Frame).chatId)
+
+      // One settled turn gives the chat a history to compact.
+      const sendMark = client.mark()
+      expect((await client.request("chat.send", { chatId, text: "plain:remember the daemon" })).ok).toBe(true)
+      await client.event("chat.done", (f) => f.chatId === chatId, sendMark)
+
+      const compactMark = client.mark()
+      expect((await client.request("chat.compact", { chatId })).ok).toBe(true)
+      // The indicator is observable while the summary request runs.
+      await client.event(
+        "chat.meta",
+        (f) => f.chatId === chatId && (f.meta as Frame).compacting === true,
+        compactMark,
+      )
+      // The report lands while the flag is still set…
+      const reportPred = (f: Frame): boolean =>
+        f.chatId === chatId &&
+        (f.message as Frame)?.role === "system" &&
+        String((f.message as Frame).content).includes("context compacted")
+      const report = await client.event("chat.message", reportPred, compactMark)
+      expect(String((report.message as Frame).content)).toContain("tokens estimated")
+      // …and the clear must follow as a meta push AFTER the report. The report
+      // itself still carries compacting:true, so searching before it would only
+      // re-find the previous turn's settled meta (the false pass this guards).
+      const reportIndex = client.indexOf((f) => f.type === "evt" && f.event === "chat.message" && reportPred(f), compactMark)
+      expect(reportIndex).toBeGreaterThanOrEqual(0)
+      const cleared = await client.event(
+        "chat.meta",
+        (f) => f.chatId === chatId && (f.meta as Frame).compacting === false,
+        reportIndex + 1,
+      )
+      expect((cleared.meta as Frame).compacting).toBe(false)
     } finally {
       client.close()
       daemon.cleanup()

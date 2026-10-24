@@ -432,6 +432,19 @@ export function startMockOpenai(opts: MockOpenaiOptions = {}): Promise<MockOpena
       })
 
       const slow = model.includes("slow")
+      // Compaction pass (docs/agent.md "Context management & compaction"): the
+      // no-tools summarization request carries the checkpoint system prompt.
+      // Answer with a valid, sectioned summary so a chat can actually compact.
+      if (!hasTools && systemText.startsWith("You summarize terminal-copilot conversations")) {
+        const summary =
+          "## Objective\nDrive the mock daemon chat.\n\n" +
+          "## Requirements\n- keep replies short\n\n" +
+          "## Completed\n- placeholder work\n\n" +
+          "## Active right now\n- nothing\n\n" +
+          "## Blockers\n- none\n\n" +
+          "## Next steps\n- continue"
+        return sseResponse(sseTextChunks(summary, "stop", USAGE), 0)
+      }
       // Waiting-indicator seam: delay only the FIRST chunk so the UI sits in
       // "streaming with no assistant bubble yet" long enough to observe.
       const lagFirstMs = model.includes("lag") ? 2500 : 0

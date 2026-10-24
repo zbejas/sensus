@@ -126,7 +126,8 @@ const unsub = chat.subscribe((event: ChatEvent) => { /* … */ })
 `src/engine/index.ts`) fires on every mutation a renderer would react to:
 `message-added`/`message-updated` (whole message, including tool-card
 status/output/exitCode and plan), `delta` (streamed content/thinking fragment),
-`status`, `plan`, `approval-request`/`approval-resolved`, `sudo-request`/
+`status`, `title`, `compacting` (a compaction started/finished; the daemon folds it
+into `meta.compacting`), `plan`, `approval-request`/`approval-resolved`, `sudo-request`/
 `sudo-resolved`, `error`, and `reset` (the list was replaced by `/clear`/resume).
 A listener that ignores `delta` still converges because the final patch carries
 the whole message; a throwing listener is contained (AGENTS.md rule 10). The TUI adds no

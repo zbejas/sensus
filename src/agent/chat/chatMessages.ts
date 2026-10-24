@@ -174,6 +174,13 @@ export type ChatEvent =
    * handles this event still converges through `chat.meta`.
    */
   | { kind: "title"; title: string }
+  /**
+   * A compaction started or finished. No dedicated WS event: the daemon folds
+   * it into `meta.compacting` (the sidebar/status-bar indicator reads it).
+   * Without the event a remote client would keep the spinner after the engine
+   * cleared the flag — the last message event still carried `true`.
+   */
+  | { kind: "compacting"; compacting: boolean }
   /** A plan card was set or changed (the message carries the whole plan). */
   | { kind: "plan"; message: ChatMessage }
   /** An approval card became pending — the engine is blocked on a decision. */

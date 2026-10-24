@@ -587,7 +587,10 @@ after every mutating op: `open`/`send`/`abort`/`compact`/`retry`/
 full meta in `state`. A title change (the engine `title` event; `sessionTitle`
 is part of the signature) is one such field: the auto title resolves *after*
 the turn settles, so it arrives as a `chat.meta` with no follow-up `chat.state`
-— the client mirrors `meta.sessionTitle` from this event.
+— the client mirrors `meta.sessionTitle` from this event. The same holds for
+the `compacting` event: the compaction's own messages are emitted while
+`meta.compacting` is still `true`, so the engine announces the clear as a
+`compacting` event and the client drops the spinner from that `chat.meta`.
 
 **`chat.send` mode (P4a).** `mode` is the engine's own `ChatSession.handleInput`
 return, so the daemon never reinterprets busy semantics:

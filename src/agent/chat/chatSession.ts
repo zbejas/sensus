@@ -510,8 +510,13 @@ export class ChatSession {
     return this.sCompacting[0]()
   }
 
+  /** Set + announce the flag. A remote host mirrors it from the event: the
+   * compaction's own messages are emitted while the flag is still true, so
+   * without the final clear event a client keeps showing the spinner. */
   private set compacting(value: boolean) {
+    if (this.sCompacting[0]() === value) return
     this.sCompacting[1](value)
+    this.emitChat({ kind: "compacting", compacting: value })
   }
 
   get editorState(): InputEditor {

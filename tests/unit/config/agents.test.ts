@@ -224,7 +224,7 @@ describe("agents", () => {
     expect(loadAgents(join(home, "nope")).agents).toEqual([])
   })
 
-  test("built-ins: copilot + scout compile in with the documented frontmatter; fallbackAgent is a usable copilot", () => {
+  test("built-ins: copilot + scout + ask compile in with the documented frontmatter; fallbackAgent is a usable copilot", () => {
     const copilot = builtInAgent("copilot")
     expect(copilot?.name).toBe("copilot")
     expect(copilot?.tools).toBeNull()
@@ -240,9 +240,16 @@ describe("agents", () => {
     expect(scout?.shell).toBe("background")
     expect(scout?.prompt).toContain("You are operating as SCOUT")
     // Autopilot was merged into copilot (approval mode picks the posture).
+    // Ask is the read-only ANSWERING posture (question first, no changes).
+    const ask = builtInAgent("ask")
+    expect(ask?.name).toBe("ask")
+    expect(ask?.readonly).toBe(true)
+    expect(ask?.shell).toBe("background")
+    expect(ask?.prompt).toContain("You are operating as ASK")
+    // Autopilot was merged into copilot (approval mode picks the posture).
     expect(builtInAgent("autopilot")).toBeNull()
     expect(builtInAgent("ghost")).toBeNull()
-    expect(BUILT_IN_AGENTS.map((b) => b.file)).toEqual(["copilot.md", "scout.md"])
+    expect(BUILT_IN_AGENTS.map((b) => b.file)).toEqual(["copilot.md", "scout.md", "ask.md"])
 
     const fb = fallbackAgent()
     expect(fb.name).toBe("copilot")

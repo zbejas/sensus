@@ -57,6 +57,12 @@ the trimmed tail is unchanged since the block the model last saw (fingerprint co
 new block collapses the tail to `[terminal] last output: unchanged (N lines …)` — one line
 per quiet turn.
 
+Mid-turn drift is the exception the durable block cannot cover: a `cd` typed through
+`shell_session` moves the pane while the generation is still running. The tool result
+therefore appends `[terminal] the pane cwd changed: A → B`, so the model does not keep
+resolving relative paths against a cwd it left behind ([`agent-tools.md`](agent-tools.md)
+"`shell_session` is verified").
+
 Toggle: `/context on|off` per session. Never emit the tail while a full-screen app (alt
 screen) is active — instead note "user is in alt-screen app (shell)". Git status comes from
 one hidden `git ...` composite call in the pane cwd (5s timeout; null when not a repo).

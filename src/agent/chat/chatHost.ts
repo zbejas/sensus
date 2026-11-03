@@ -32,6 +32,7 @@ import { SudoVault } from "../../core/sudoVault.ts"
 import { sudoAskpassBroker } from "../sudoAskpass.ts"
 import { updateRawConfig } from "../../config/configFile.ts"
 import { buildSystemPrompt } from "../prompt.ts"
+import { TOOL_SPECS } from "../tools.ts"
 import { estTokens, resolveContextLimit, TOOL_SPEC_TOKENS } from "./compaction.ts"
 import { type ContextBreakdown } from "../../engine/chat/contextInspector.ts"
 import { reconstructHistoryEntries } from "./contextHistory.ts"
@@ -451,6 +452,9 @@ export class ChatHost {
         model,
         terminal: "embedded PTY (xterm-256color)",
         noTools: false,
+        // Best effort: the real request filters by readonly/memory/vision; a
+        // past session has no live tool list, so estimate with every core tool.
+        tools: TOOL_SPECS.map((s) => s.function.name),
         mcp: [],
         skills: this.skills,
         customInstructions: this.instructionsText,

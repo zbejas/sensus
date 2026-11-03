@@ -114,6 +114,8 @@ Built-ins (materialized on first boot; Sensus-owned — refreshed on updates, ed
   mode** (session-first in confirm, background-first/autonomous in full-auto).
 - **scout** — `readonly: true`, `shell: background`, `sudoPrompt: ask`: the read-only
   researcher; the guard enforces it at the tool layer.
+- **ask** — `readonly: true`, `shell: background`, `sudoPrompt: ask`: the read-only
+  answering posture (answer first, evidence next to the claim, never change state).
 
 Switching applies the pick to the current session and persists it as the default for new
 sessions (other open tabs are untouched). Paths: `/agent <name>`, `/agent` or `Alt+M`

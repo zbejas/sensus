@@ -1116,9 +1116,11 @@ describe("sensus chat (in-tmux smoke)", () => {
         console.log("[chat] scout posture on the wire")
 
         // 4. Agent CHIP click opens the picker; pick copilot; wire flips.
+        //    The list is file-name ordered (ask, copilot, scout) and wraps, so
+        //    from scout it is one UP to copilot.
         await clickInBar("agent:")
         await waitFor(async () => (await cap()).includes(" agents "), "picker via chip")
-        await key("Down")
+        await key("Up")
         await key("Enter")
         await waitFor(async () => (await bar()).includes("agent:copilot"), "chip pick copilot", 8000)
         await runScriptedTurn("hello two")

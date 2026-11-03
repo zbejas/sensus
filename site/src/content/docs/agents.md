@@ -11,7 +11,7 @@ read-only.
 
 ## Built-in agents
 
-Sensus ships two, written into `~/.config/sensus/agents/` the first time you run it:
+Sensus ships three, written into `~/.config/sensus/agents/` the first time you run it:
 
 - **copilot** (the default): the terminal guide. It adapts to the approval mode: in confirm
   mode it works in your visible terminal so you can watch, explains one step at a time, and
@@ -19,6 +19,10 @@ Sensus ships two, written into `~/.config/sensus/agents/` the first time you run
   shell, verifies each step, and finishes with a summary.
 - **scout**: the read-only researcher. It explores your machine and code and reports what it
   found; changes are refused outright, whatever the approval mode.
+- **ask**: the read-only answerer. It answers the question you asked — briefly, with the
+  evidence next to the claim — and says so when it could not confirm. It reads your notes
+  and machine map but changes nothing; if the answer is a change, it shows you the exact
+  command and hands the work to copilot.
 
 Built-ins are Sensus-owned. They refresh in place when an update changes them, and if you edit
 one, your version is rescued under a new name and a fresh built-in is generated; nothing is
@@ -49,7 +53,7 @@ takes effect on the next message.
 | `skills` | Which skills the agent may see and load. Absent, empty, or `["*"]` means all. |
 | `sudoPrompt` | How sudo is handled: `ask` (the default, where the agent hands the command to you), `popup` (Sensus asks for the password in a popup and retries), or `auto` (popup in full-auto, ask in confirm). |
 | `shell` | The preferred shell: `session` for your visible terminal, `background` for the hidden shell, or `auto` for no preference. |
-| `readonly` | `true` makes the agent read-only: edits, memory writes, typing into your terminal, and mutating shell commands are refused outright, whatever the approval mode. |
+| `readonly` | `true` makes the agent read-only: edits, memory writes, typing into your terminal, and mutating shell commands are refused outright, whatever the approval mode. Reading notes and the machine map still works. |
 
 Unknown fields are ignored with a warning. A minimal custom agent looks like this:
 

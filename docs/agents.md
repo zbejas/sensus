@@ -62,8 +62,11 @@ Frontmatter fields (parser is hand-rolled — `key: value`, `key: [a, b]` inline
 - `readonly` (`true` | `false`, default `false`): the **read-only guard**. When `true`, the
   execution layer hard-denies every mutating call, independent of `tools` and impossible to
   override from the model side:
-  - `edit_file`, `write_file`, `memory`, `shell_session`, and MCP tools (`mcp__*`) are
-    denied outright (and dropped from the request tool list);
+  - `edit_file`, `write_file`, `shell_session`, and MCP tools (`mcp__*`) are denied outright
+    (and dropped from the request tool list);
+  - the `memory` tool is limited to the read actions `list`/`read` — a read-only researcher
+    must still be able to read HOST.md and JOURNAL.md; every write action (`add`, `replace`,
+    `remove`, `rewrite`) is denied;
   - a `shell_background` command is denied unless it is read-only: output redirection,
     in-place editors (`sed -i`, `perl -i`), filesystem mutators (`rm`, `mv`, `cp`, `mkdir`,
     `touch`, `chmod`, `chown`, `ln`, `truncate`, `dd`, `tee`, …), package managers, service
@@ -81,7 +84,7 @@ Frontmatter fields (parser is hand-rolled — `key: value`, `key: [a, b]` inline
 
 ## Built-ins
 
-`copilot.md` and `scout.md` ship inside the binary and are materialized into
+`copilot.md`, `scout.md` and `ask.md` ship inside the binary and are materialized into
 `~/.config/sensus/agents/` on first boot (together with the `memory/` directory and the
 built-in skills — [`skills.md`](skills.md) "Built-in skills"). They are **Sensus-owned**: each
 carries a banner whose `sha256` hashes its
@@ -96,13 +99,19 @@ and an empty agents directory falls back to copilot.
 
 - **copilot** (default) — `shell: auto`, `sudoPrompt: auto`: it **adapts to the approval
   mode** (session-first in confirm, background-first/autonomous in full-auto) instead of
-  shipping a separate autopilot. It reserves `ask_user` for genuine forks (destructive or
-  ambiguous choices).
+  shipping a separate autopilot. Its body is posture only — the shared rules, the approval
+  economy and the ask-vs-act boundary live in the system prompt's sections
+  ([`agent-prompt.md`](agent-prompt.md)), so a rewrite of one cannot drift from the others.
 - **scout** — the read-only researcher: `readonly: true`, `shell: background`,
   `sudoPrompt: ask`; the guard enforces that at the tool layer.
+- **ask** — the read-only *answering* posture: `readonly: true`, `shell: background`,
+  `sudoPrompt: ask`. Where scout explores and reports, ask answers the question that was
+  asked and stops: answer first, evidence next to the claim, "I could not confirm" when it
+  could not. It reads the same stores as scout (HOST.md/JOURNAL.md through `memory`
+  `list`/`read`) and hands any needed change back to copilot.
 - The old `autopilot` built-in is gone. An existing `autopilot.md` on disk still loads (no
-  file is deleted), but new installs get only copilot + scout; `agent: "autopilot"` in config
-  now falls back to copilot, and the same autonomous behavior is one `/yolo` away.
+  file is deleted), but new installs get only copilot, scout and ask; `agent: "autopilot"` in
+  config now falls back to copilot, and the same autonomous behavior is one `/yolo` away.
 
 ## Selection semantics
 

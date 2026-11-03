@@ -360,13 +360,19 @@ export function approvalDecision(
  * (docs/agents.md `readonly`). `shell_session` types into the user's visible
  * pane, so it is refused outright; read-only shell work goes through
  * `shell_background` (`isReadOnlyShellCommand`).
+ *
+ * `memory` is NOT here: a read-only agent must still be able to read HOST.md
+ * and JOURNAL.md (that is the whole point of a researcher). Its writes are
+ * refused per-action by `readonlyGuardDecision` instead.
  */
 export const READONLY_DENIED_TOOLS: ReadonlySet<string> = new Set([
   "edit_file",
   "write_file",
-  "memory",
   "shell_session",
 ])
+
+/** The only memory actions a read-only agent may run (docs/memory.md). */
+const READONLY_MEMORY_ACTIONS: ReadonlySet<string> = new Set(["list", "read"])
 
 /**
  * Command classes that mutate state. A read-only agent may not run a command
@@ -472,7 +478,8 @@ function firstLine(command: string): string {
  * A terminal `deny` (`denySource: "guard"`): the read-only agent may not run
  * edits, memory writes, `shell_session`, MCP side effects, or a mutating shell
  * command — regardless of permission rules, session trust or an approval policy
- * (docs/agents.md `readonly`). Pure.
+ * (docs/agents.md `readonly`). Memory READS ("list"/"read") are allowed: the
+ * guard is about state, not about knowledge. Pure.
  */
 export function readonlyGuardDecision(name: string, args: Record<string, unknown>): ApprovalDecision | null {
   if (READONLY_DENIED_TOOLS.has(name)) {
@@ -481,6 +488,17 @@ export function readonlyGuardDecision(name: string, args: Record<string, unknown
       action: "deny",
       denySource: "guard",
       denyReason: `read-only agent: ${name} is not permitted`,
+    }
+  }
+  if (name === "memory") {
+    const action = String(args["action"] ?? "")
+    if (!READONLY_MEMORY_ACTIONS.has(action)) {
+      return {
+        gate: true,
+        action: "deny",
+        denySource: "guard",
+        denyReason: `read-only agent: the memory tool is limited to action "list" or "read"`,
+      }
     }
   }
   if (name === "shell_background") {

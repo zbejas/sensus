@@ -14,7 +14,9 @@ pipeline. Prompt caching (why the prompt must not change mid-session) is in
 
 | File | Purpose |
 |---|---|
-| `src/agent/prompt.ts` | `buildSystemPrompt` + `SystemPromptFacts`; the no-tools section |
+| `src/agent/prompt.ts` | `buildSystemPrompt` — the section registry loop + `SystemPromptFacts` |
+| `src/agent/prompt/section.ts` | `PromptSection` / `SectionCtx` / `SystemPromptFacts` contracts |
+| `src/agent/prompt/sections/` | One module per prompt block (role, environment, shells, rules, approvals, when-to-ask, agent, no-tools, MCP, skills, instructions, memory) |
 | `src/agent/instructions.ts` | Config `instructions` resolution (paths, `~/`, globs, URLs) + the nearest-`AGENTS.md` lookup |
 | `src/agent/skills/loader.ts` | `skillsIndexText` — the name+description prompt index |
 | `src/agent/memory/store.ts` | The frozen MEMORY snapshot the prompt carries ([`memory.md`](memory.md)) |
@@ -27,45 +29,67 @@ pipeline. Prompt caching (why the prompt must not change mid-session) is in
 
 ### System prompt
 
-1. Role: expert terminal/server copilot living inside the user's terminal. Concise,
+The prompt is a **registry of ordered sections**, not one function that pushes lines.
+`src/agent/prompt.ts` is the assembler (`buildSystemPrompt`); one module per block lives
+under `src/agent/prompt/sections/`, each declaring an `order` and a `render(ctx)`. A section
+renders from the prompt facts **plus the tool set the request actually carries**
+(`SystemPromptFacts.tools`, filled from `toolSpecsForRequest` + the MCP specs), so guidance
+for a tool that is not in the request is never rendered: a read-only agent is not taught
+`shell_session`, an agent whose `tools` list has no shell tool never sees the sudo rule, and
+no-tools mode drops every tool block. A section that returns `""` is skipped entirely — no
+blank gap, no orphan header.
+
+Render order:
+
+1. **Role** — expert terminal/server copilot living inside the user's terminal. Concise,
    ops-focused; prefer showing a command over explaining theory.
-2. Active agent block: `Active agent: <name> — <description>`.
-3. Environment block: os, host, shell, model, terminal engine (`- terminal: embedded PTY
+2. **Active agent** — `Active agent: <name> — <description>`.
+3. **Environment** — os, host, shell, model, terminal engine (`- terminal: embedded PTY
    (xterm-256color)`), plus a cwd line that says the working directory is provided per
    message in the terminal context block. Static by design — volatile facts live in the
    per-generation terminal context message ([`agent-context.md`](agent-context.md)).
-4. The two shell tools rule: `shell_background` is hidden (investigation + delegated work);
-   `shell_session` is the user's visible terminal. The active agent's `shell` preference
-   sharpens it — `session` = SESSION-FIRST (shell_session is the default for anything the
-   user asks to run/change/see; background only for quiet read-only investigation),
-   `background` = BACKGROUND-FIRST, `auto` = the neutral rule.
-5. Rules: investigate before guessing; **read files with `read_file` (`offset`/`limit`, 1-based),
-   never by shelling out to `sed -n`/`awk`/`head`/`tail`/`cat` (read_file is bounded and pageable;
-   every call costs an approval card either way)**; apply config/AGENTS.md/agent/skill/MCP edits with the `reload` tool,
-   never by typing `/reload` into the terminal; **when memory is enabled, always consult HOST.md
-   (memory tool, target `host`) before answering or acting on anything about this machine**
-   — services, ports, paths, dependencies, configuration; file tools resolve against the
-   pane cwd; destructive commands need explicit user text approval even in full-auto;
-   never claim a command ran without a tool call; never ask for the user's sudo password
-   yourself. The sudo rule also states: run plain `sudo <cmd>` (never `-n` as a probe) in
-   the hidden shell ([`agent-tools.md`](agent-tools.md) "Sudo").
-6. Agent instructions: the active agent's prompt body verbatim. The built-in copilot body
-   is approval-conditional (session-first in confirm, autonomous/background-first in
-   full-auto), so the static body never embeds the volatile approval value.
-7. Connected MCP servers block: one line per server with its tool names, plus a
-   prefer-the-domain-tool nudge ([`mcp.md`](mcp.md)).
-8. Skills block (only when any exist): the name+description index from `skillsIndexText`
-   plus a read-the-full-one-first nudge ([`skills.md`](skills.md)).
-9. Custom instructions: `~/.config/sensus/AGENTS.md` plus every resolved source from the
-   config `instructions` list (paths, `~/` paths, globs, fetched URLs; [`config.md`](config.md)
-   "instructions"), appended verbatim under one `Custom instructions (AGENTS.md + config
-   \`instructions\`)` section. `/reload` re-resolves.
-10. Memory block (only when enabled): the frozen MEMORY snapshot plus a static instruction
-    to read HOST.md/JOURNAL.md through the memory tool ([`memory.md`](memory.md)).
-
-When the session is latched no-tools, the prompt appends a copy-paste-only section
-("Tool use is UNAVAILABLE on this endpoint …", `NO_TOOLS_SECTION` in `src/agent/prompt.ts`);
-the user-facing behavior is in [`agent-loop.md`](agent-loop.md) "No-tools degradation".
+4. **Shell tools** — gated on `shell_background`/`shell_session`: hidden shell vs the user's
+   visible terminal. The active agent's `shell` preference sharpens it — `session` =
+   SESSION-FIRST (shell_session is the default for anything the user asks to
+   run/change/see; background only for quiet read-only investigation), `background` =
+   BACKGROUND-FIRST, `auto` = the neutral rule — but only for a shell that exists in the
+   request.
+5. **Rules** — investigate before guessing; **read files with `read_file`
+   (`offset`/`limit`, 1-based), never by shelling out to `sed -n`/`awk`/`head`/`tail`/`cat`
+   (read_file is bounded and pageable; every call costs an approval card either way)**;
+   apply config/AGENTS.md/agent/skill/MCP edits with the `reload` tool, never by typing
+   `/reload` into the terminal; file tools resolve against the pane cwd; never claim a
+   command ran without a tool call; never ask for the user's sudo password yourself. The
+   sudo rules (plain `sudo <cmd>`, never `-n` as a probe) appear only when a shell tool
+   exists ([`agent-tools.md`](agent-tools.md) "Sudo").
+6. **Working with approvals** — the approval economy: in confirm mode every gated call is a
+   card the user answers, so independent calls batch into one turn (one plan card for N
+   calls), a card is never spent re-reading what the agent already has, a state change is
+   announced in one line, and the destructive floor holds in full-auto too
+   ([`agent-approvals.md`](agent-approvals.md)).
+7. **When to ask** — the ask-vs-act boundary, rendered only when `ask_user` is in the
+   request: ask only for a genuine fork (destructive/irreversible, missing credentials, an
+   ambiguous goal whose readings need different work), never for permission or
+   "what next?", once and with the options.
+8. **Agent instructions** — the active agent's prompt body verbatim, AFTER the shared rules
+   so its posture wins on conflict (the header says so). Built-in bodies are posture only:
+   anything every agent needs lives in a section above, which is what keeps copilot, scout
+   and ask from drifting apart. The copilot body is approval-conditional (session-first in
+   confirm, autonomous/background-first in full-auto), so the static body never embeds the
+   volatile approval value.
+9. **No-tools** — the copy-paste-only section ("Tool use is UNAVAILABLE on this endpoint …"),
+   see [`agent-loop.md`](agent-loop.md) "No-tools degradation".
+10. **MCP servers** — one line per server with its tool names, plus a prefer-the-domain-tool
+    nudge ([`mcp.md`](mcp.md)).
+11. **Skills** — only when a catalog exists AND `skill_view` is offered: the
+    name+description index from `skillsIndexText` plus a read-the-full-one-first nudge
+    ([`skills.md`](skills.md)).
+12. **Custom instructions** — `~/.config/sensus/AGENTS.md` plus every resolved source from
+    the config `instructions` list (paths, `~/` paths, globs, fetched URLs;
+    [`config.md`](config.md) "instructions"), appended verbatim under one `Custom
+    instructions (AGENTS.md + config \`instructions\`)` section. `/reload` re-resolves.
+13. **Memory** — only when enabled: the frozen MEMORY snapshot, the HOST.md/JOURNAL.md
+    read pointer and the store-full rewrite guidance ([`memory.md`](memory.md)).
 
 ### Dynamic nearest-`AGENTS.md` on read
 
@@ -151,6 +175,15 @@ While a generation runs, the sidebar and status bar show progress:
 
 - **The system prompt is byte-stable**; volatile facts (cwd, approval mode) ride the
   per-generation context message. A `cd` or `/yolo` must not invalidate the prefix cache.
+- **A section may not read volatile state** (clock, cwd, approval mode, live memory): its
+  inputs are `facts` and `ctx.tools` only, or the cached prefix breaks.
+- **The request's tool set is part of the prompt's identity**: the same facts with a
+  different tool list legitimately render different bytes (that is the point of the
+  tool-conditional sections), which is why the set is fixed per session — agent, `readonly`,
+  memory on/off and model vision all resolve before the prompt is built.
+- **`tests/unit/agent/__snapshots__/prompt.test.ts.snap` is the guard**: the copilot, scout
+  and ask prompts are snapshotted, so an accidental wording or ordering change is a diff,
+  not a surprise in the field.
 - **The memory snapshot is frozen per session; writes appear next session**
   ([`memory.md`](memory.md)).
 - **Skills put only name+description in the prompt**; bodies load via `skill_view`

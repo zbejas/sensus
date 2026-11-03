@@ -1728,13 +1728,18 @@ describe("agents (docs/agents.md — copilot/autopilot definitions)", () => {
     expect(gate("shell_background", { command: "ls -la > /tmp/x" })).toMatchObject({ action: "deny", denySource: "guard" })
     expect(gate("shell_background", { command: "git status" }).action).toBeUndefined()
     expect(gate("read_file", { path: "/tmp/x" }).action).toBeUndefined()
+    // Memory is state, not knowledge: reads pass, writes do not.
+    expect(gate("memory", { action: "read", target: "host" }).action).toBeUndefined()
+    expect(gate("memory", { action: "list", target: "memory" }).action).toBeUndefined()
 
-    // The request tool list drops the mutating tools the guard would deny.
+    // The request tool list drops the mutating tools the guard would deny —
+    // memory stays, because list/read is how a researcher reads HOST.md.
     chat.handleInput("hi")
     await until(() => chat.accessors.status() === "idle", 8000, "idle")
     const req = h.provider.requests[0]
     const names = ((req?.tools as Array<{ function: { name: string } }> | undefined) ?? []).map((t) => t.function.name)
-    for (const n of ["edit_file", "write_file", "memory", "shell_session"]) expect(names).not.toContain(n)
+    for (const n of ["edit_file", "write_file", "shell_session"]) expect(names).not.toContain(n)
+    expect(names).toContain("memory")
     expect(names).toContain("read_file")
     expect(names).toContain("shell_background")
   })

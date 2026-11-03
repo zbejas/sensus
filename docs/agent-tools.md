@@ -121,6 +121,10 @@ output"; three typed commands swallowed as continuation text by a `dquote>`). No
   needs (the bottom lines), so it is never blind.
 - The result also echoes `pane state before typing: prompt (confidence 0.80)` so the agent
   can plan.
+- **cwd drift is reported.** A typed command can move the pane (`cd ~/app`), and the next
+  terminal context block is a whole generation away. When the cwd changed across the call,
+  the result appends `[terminal] the pane cwd changed: ~/x → ~/app — later relative paths
+  resolve there` ([`agent-context.md`](agent-context.md) "Context injection").
 
 ### Images
 
@@ -329,8 +333,9 @@ The pure store + `lastUndoable`/`markUndone` semantics are unit-tested in
 - **MCP tools connect lazily, isolate failures, and are never allow-prefixable** — prefixes
   are shell commands. A colliding MCP spec is deduped, not resolved
   ([`mcp.md`](mcp.md)).
-- **The read-only guard refuses `edit_file`/`write_file`/`memory`/`shell_session`/MCP and
-  mutating shell commands** ([`agent-approvals.md`](agent-approvals.md)).
+- **The read-only guard refuses `edit_file`/`write_file`/`shell_session`/MCP, memory
+  writes (its `list`/`read` actions pass), and mutating shell commands**
+  ([`agent-approvals.md`](agent-approvals.md)).
 
 ## Related docs
 

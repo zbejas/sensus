@@ -121,9 +121,11 @@ event stream", [`daemon-api.md`](daemon-api.md)).
 When the active agent has `readonly: true` ([`agents.md`](agents.md) `readonly`),
 `gateDecision` returns a terminal `deny` **before** the mode/
 `permission`/trust/policy pipeline via `readonlyGuardDecision`, so nothing can un-deny it. `edit_file`, `write_file`,
-`memory`, `shell_session`, and MCP tools are refused outright; a `shell_background`
+`shell_session`, and MCP tools are refused outright; a `shell_background`
 command is refused unless `isReadOnlyShellCommand` accepts it (no redirects, mutators,
 package managers, service/container control, sudo, git writes, `find -delete`, `xargs`, …).
+`memory` is decided per action: `list`/`read` pass (a researcher must read HOST.md and
+JOURNAL.md), every write action is denied with the same guard source.
 The denial surfaces as `Denied: read-only agent: …` and is emitted with
 `source: "guard"`.
 

@@ -72,7 +72,7 @@ import {
   toolParamsSummary,
   type ToolSpec,
 } from "../tools.ts"
-import { buildContextBlock, collectGitStatus, tailFingerprint, trimBlankSpam } from "../context.ts"
+import { abbreviateHome, buildContextBlock, collectGitStatus, tailFingerprint, trimBlankSpam } from "../context.ts"
 import { buildSystemPrompt } from "../prompt.ts"
 import { findNearestInstructionFile } from "../instructions.ts"
 import { toolOutputDir } from "../truncate.ts"
@@ -1945,6 +1945,11 @@ export class ChatSession {
     } catch {
       mcp = []
     }
+    // The prompt is compiled against the tools the request ACTUALLY carries
+    // (docs/agent-prompt.md "Tool-conditional sections"): guidance for a tool
+    // the agent opted out of — or that `readonly`/a disabled memory/vision
+    // dropped — would otherwise be advertised to a model that cannot call it.
+    const specs = this.noTools ? [] : [...this.toolSpecsForRequest(TOOL_SPECS), ...this.mcpSpecsForRequest()]
     return buildSystemPrompt({
       os: `${os.type()} ${os.release()} (${process.platform})`,
       hostname: os.hostname(),
@@ -1953,6 +1958,7 @@ export class ChatSession {
       model: this.selectedModel(),
       terminal: "embedded PTY (xterm-256color)",
       noTools: this.noTools,
+      tools: specs.map((s) => s.function.name),
       mcp,
       skills: this.skillCatalogForAgent(),
       customInstructions: this.deps.getInstructions?.() ?? null,
@@ -3520,9 +3526,14 @@ export class ChatSession {
 
     this.patchToolCard(call.id, { status: "running" })
     const startedAt = Date.now()
+    // The pane cwd the call resolved paths against. `shell_session` can change
+    // it mid-turn (`cd x`), and the next context block is a whole generation
+    // away — so the result notes the move (docs/agent-context.md "Context
+    // injection") instead of leaving the model with a stale idea of where it is.
+    const paneCwdBefore = this.paneCwd()
     const exec = await executeTool(call.name, args, {
       pane: this.terminalSnapshot()?.pane ?? null,
-      paneCwd: this.paneCwd(),
+      paneCwd: paneCwdBefore,
       jobScope: this.jobScope,
       signal,
       // The `reload` tool applies config/AGENTS.md/agents/skills/MCP edits
@@ -3551,6 +3562,16 @@ export class ChatSession {
       toolOutputDir: toolOutputDir(sensusStateDir()),
     })
     if (exec.images !== undefined && exec.images.length > 0) this.pendingToolImages.set(call.id, exec.images)
+    // Mid-turn cwd drift (docs/agent-context.md "Context injection"): a `cd`
+    // typed into the user's pane moves the base every later relative path
+    // resolves against, and the next context block is a whole generation away.
+    let resultText = exec.result
+    if (call.name === "shell_session" && paneCwdBefore !== null) {
+      const paneCwdAfter = this.paneCwd()
+      if (paneCwdAfter !== null && paneCwdAfter !== paneCwdBefore) {
+        resultText += `\n[terminal] the pane cwd changed: ${abbreviateHome(paneCwdBefore)} → ${abbreviateHome(paneCwdAfter)} — later relative paths resolve there`
+      }
+    }
     this.deps.audit?.record({
       ts: Date.now(),
       kind: call.name === "memory" ? "memory" : call.name === "shell_background" ? "shell" : "other",
@@ -3585,9 +3606,9 @@ export class ChatSession {
       aborted ? null : exec.preview,
       { output: aborted ? "aborted by user" : exec.preview, exitCode: exec.exitCode },
       exec.exitCode,
-      aborted ? null : exec.result,
+      aborted ? null : resultText,
     )
-    return exec.result
+    return resultText
   }
 }
 

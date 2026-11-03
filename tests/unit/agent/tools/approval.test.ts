@@ -249,7 +249,7 @@ describe("activeJobs (status-bar chip + context line)", () => {
 
 describe("read-only agent guard (readonlyGuardDecision)", () => {
   test("hard-denies mutating tools and permits read-only ones", () => {
-    for (const name of ["edit_file", "write_file", "memory", "shell_session"]) {
+    for (const name of ["edit_file", "write_file", "shell_session"]) {
       const d = readonlyGuardDecision(name, {})
       expect(d?.action).toBe("deny")
       expect(d?.denySource).toBe("guard")
@@ -257,6 +257,19 @@ describe("read-only agent guard (readonlyGuardDecision)", () => {
     expect(readonlyGuardDecision("mcp__github__create_issue", {})?.action).toBe("deny")
     for (const name of ["read_file", "get_scrollback", "session_search", "skills_list", "host_scan", "ask_user"]) {
       expect(readonlyGuardDecision(name, {})).toBeNull()
+    }
+  })
+
+  test("a read-only agent can READ the memory stores but never write them", () => {
+    // HOST.md/JOURNAL.md are the researcher's whole point: list/read work.
+    for (const action of ["list", "read"]) {
+      expect(readonlyGuardDecision("memory", { action, target: "host" })).toBeNull()
+    }
+    for (const action of ["add", "replace", "remove", "rewrite"]) {
+      const d = readonlyGuardDecision("memory", { action, target: "memory" })
+      expect(d?.action).toBe("deny")
+      expect(d?.denySource).toBe("guard")
+      expect(d?.denyReason).toContain('"list" or "read"')
     }
   })
 

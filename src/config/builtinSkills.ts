@@ -210,16 +210,17 @@ FRONTMATTER FIELDS
 - shell — auto | session | background: the default shell posture placed in the prompt
   (session prefers the user's visible terminal).
 - readonly — true | false (default false). true makes the agent read-only: the execution
-  layer hard-denies edit_file, write_file, memory, shell_session, MCP tools, and any
+  layer hard-denies edit_file, write_file, shell_session, MCP tools, memory WRITES, and any
   mutating shell command (redirects, rm/mv/cp/chmod, package managers, service/container
   control, sudo, git write subcommands, …), whatever the tools list says and whatever the
   model tries. It cannot be overridden by permission rules, session trust, or an approval
-  policy. Reads (read_file, git status, ls, grep, …) still work.
+  policy. Reads (read_file, memory "list"/"read", git status, ls, grep, …) still work.
 - Unknown keys warn and are ignored.
 
-Built-ins: 'copilot' (the general guide; materialized on boot, Sensus-owned) and 'scout'
-(readonly: true — a read-only researcher). Copilot adapts to the approval mode: session-first
-and step-by-step in confirm, autonomous and background-first in full-auto.
+Built-ins: 'copilot' (the general guide; materialized on boot, Sensus-owned), 'scout'
+(readonly: true — a read-only researcher) and 'ask' (readonly: true — a read-only answering
+posture). Copilot adapts to the approval mode: session-first and step-by-step in confirm,
+autonomous and background-first in full-auto.
 Built-in files are refreshed on update; an edited built-in is rescued as
 <stem>.modified-<time>.md with a unique name — copy a built-in to a new name to customize.
 /agent <name>, Alt+M, or the picker switches the session and persists the default.

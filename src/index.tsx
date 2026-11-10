@@ -55,6 +55,12 @@ async function main(): Promise<number> {
     const { runDaemon } = await import("./daemon/cli.ts")
     return await runDaemon(cli.argv, cliIo, process.env)
   }
+  // Headless host-local pairing identity/scopes (docs/auth.md). No network,
+  // no relay, and no Elysia import on the TUI boot path.
+  if (cli.action === "auth") {
+    const { runAuth } = await import("./auth/cli.ts")
+    return runAuth(cli.argv, cliIo, process.env)
+  }
   // Headless event-log tail (docs/events.md): `--follow` blocks here.
   if (cli.action === "events") {
     return await runEvents(cli.argv, cliIo, process.env)

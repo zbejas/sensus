@@ -75,6 +75,21 @@ The keymap↔catalog invariant is enforced by tests: every keymap action has exa
 registry row, and every slash hint exists in `SLASH_COMMANDS`. See
 [`keybindings.md`](keybindings.md) for dispatch order and the opentui quirks.
 
+### `auth/`
+
+| File | Purpose |
+|---|---|
+| `auth/identity.ts` | Ed25519 host identity, fingerprint, challenge signing (the cloud connector verifies on the other side) |
+| `auth/policy.ts` | Host-local pairing scopes, default `view`, cwd allowlist, atomic 0600 writes |
+| `auth/scopes.ts` | Canonical `view/chat/control/orchestrator` tags and implied-`view` rules |
+| `auth/paths.ts` | `<config>/auth` paths, owner-only JSON writes, root refusal |
+| `auth/cli.ts` | Headless `sensus auth init/identity/scopes/status` |
+| `auth/index.ts` | Barrel for tests; the separate cloud connector reads the files, not this module |
+
+The auth module is network-free: it exists so the host owns the pairing identity and the
+authorization decision. The outbound connector, cloud token, and stream broker live in the
+separate Sensus Cloud repository; the daemon remains loopback-only.
+
 ### `config/`
 
 | File | Purpose |

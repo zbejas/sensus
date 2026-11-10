@@ -48,6 +48,7 @@ and from the compiled binary; the interactive `sensus init` marker just boots th
 | `sensus secrets <cmd>` | Manage the encrypted secrets store: `list`, `set <NAME> <value>`, `rm <NAME>`, `migrate` (docs/config.md "Secrets") |
 | `sensus events tail` | Print the durable local event log (schema v1; `--follow`, `--type <t,t>`, `--since <ms\|ISO>`) ([`events.md`](events.md)) |
 | `sensus triggers tail` | Print the durable local trigger log (`--follow`, `--type <t,t>`) ([`triggers.md`](triggers.md)) |
+| `sensus auth <cmd>` | Host-local pairing: `init`, `identity`, `scopes`, `status`; writes the Ed25519 identity and scope policy under `<config>/auth/` ([`auth.md`](auth.md)) |
 | `sensus daemon <cmd>` | Run/manage the local daemon (worker): `serve`, `start`, `stop`, `status`, `logs [--follow]`, `install`/`uninstall [--dry-run]` ([`daemon-api.md`](daemon-api.md)) |
 | `sensus kill` | Kill switch: stop **every** running sensus daemon this user owns (all runtime dirs, current environment included), then remove stale sockets/pids; `--dry-run` lists without killing ([Daemon](#daemon)) |
 | `sensus init` | Boot the TUI with the setup modal open (optional alias for `/init-wizard`) |

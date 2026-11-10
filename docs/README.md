@@ -40,6 +40,7 @@ an AI agent chat sidebar on the right, started by running `sensus` from a shell
 | [`events.md`](events.md) | Instance identity (`instance.json`) + the durable event log (schema v1), no-egress guarantee |
 | [`triggers.md`](triggers.md) | Local condition triggers: the `triggers` rules, `triggers.jsonl`, `sensus triggers tail`, the persistent service |
 | [`daemon-api.md`](daemon-api.md) | The `sensus daemon` (worker): REST surface, auth, error shape, runtime/lifecycle (REST reference: Scalar at `/openapi`, generated from `src/daemon/apiSchemas.ts`) |
+| [`auth.md`](auth.md) | Host-local pairing: Ed25519 identity, fingerprint, scope policy, `sensus auth` commands (the cloud connector is a separate project) |
 | [`logging.md`](logging.md) | Structured logging: the NDJSON envelope, levels + severity numbers, redaction, correlation, rotation, the reader API, `sensus daemon logs`, `SENSUS_LOG_LEVEL`/`SENSUS_LOG_STRICT` |
 | [`testing.md`](testing.md) | Test layout, commands, philosophy, smoke-test rules, mocks, ship guards |
 | [`roadmap.md`](roadmap.md) | Project status: what ships today and what is deliberately open |
@@ -62,6 +63,7 @@ an AI agent chat sidebar on the right, started by running `sensus` from a shell
 | Shipping / packaging | `operations.md` |
 | Writing or debugging tests | `testing.md` → `AGENTS.md` testing policy |
 | Instance identity / the event log | `events.md` → `extensions.md` → `daemon-api.md` |
+| Pairing identity or host scopes | `auth.md` → `daemon-api.md` → `operations.md` |
 | Local triggers / persistent service | `triggers.md` → `events.md` → `operations.md` |
 | Checking project status | `roadmap.md` |
 

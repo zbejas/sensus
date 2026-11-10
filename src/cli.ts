@@ -41,6 +41,7 @@ export type CliDecision =
   | { action: "exit"; code: number }
   | { action: "update"; argv: string[] }
   | { action: "daemon"; argv: string[] }
+  | { action: "auth"; argv: string[] }
   | { action: "kill"; argv: string[] }
   | { action: "events"; argv: string[] }
   | { action: "triggers"; argv: string[] }
@@ -77,6 +78,7 @@ Usage:
   sensus --export <file>    print a session transcript as markdown
   sensus update             update to the latest release in place (alias: upgrade)
   sensus secrets <cmd>      manage the encrypted secrets store: list | set <NAME> <value> | rm <NAME> | migrate
+  sensus auth <cmd>         host-local pairing identity and scopes: init | identity | scopes | status
   sensus daemon <cmd>       run/manage the local daemon (worker): serve | start | stop | status | logs | install | uninstall
   sensus kill               stop every running sensus daemon (the kill switch; --dry-run)
   sensus events tail        print the local event log (--follow, --type <t>, --since <ms|ISO>)
@@ -459,6 +461,12 @@ export function handleCli(argv: readonly string[], io: CliIo, env: NodeJS.Proces
   // (handleCli stays synchronous so the pure CLI tests can stay spawn-free).
   if (first === "daemon") {
     return { action: "daemon", argv: argv.slice(1) }
+  }
+  // `sensus auth` is the headless host-local pairing surface (docs/auth.md):
+  // no network, no relay. Handled before the nest guard so it works inside a
+  // sensus pane too. `src/index.tsx` calls the synchronous runner.
+  if (first === "auth") {
+    return { action: "auth", argv: argv.slice(1) }
   }
   // `sensus kill` is the global kill switch (docs/operations.md "Daemon"): it
   // stops every daemon this user runs, whatever runtime dir each was started

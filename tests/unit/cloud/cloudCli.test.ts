@@ -99,6 +99,76 @@ describe("sensus cloud pair", () => {
     expect(JSON.parse(raw).deviceToken).toBe("device-token")
   })
 
+  test("interactive pairing without --allow asks which scopes to grant", async () => {
+    const home = tempHome()
+    const { io, err } = capture()
+    const { fetchImpl } = fakeFetch()
+    const prompts: string[] = []
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, {
+        fetchImpl,
+        interactive: true,
+        confirm: async () => false,
+        promptText: async (question: string) => {
+          prompts.push(question)
+          return ""
+        },
+      }),
+    )
+    expect(code).toBe(0)
+    expect(prompts.length).toBe(1)
+    expect(prompts[0]).toContain("[view,chat,control]")
+    expect(err.join("\n")).toContain("orchestrator")
+    const conn = readCloudConnection(home)
+    expect(conn.ok).toBe(true)
+    if (!conn.ok || conn.connection === null) return
+    expect(conn.connection.scopes).toEqual(["view", "chat", "control"])
+  })
+
+  test("interactive pairing accepts a custom scope list and re-asks on invalid input", async () => {
+    const home = tempHome()
+    const { io, err } = capture()
+    const { fetchImpl } = fakeFetch()
+    const answers = ["root", "view,chat"]
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, {
+        fetchImpl,
+        interactive: true,
+        confirm: async () => false,
+        promptText: async () => answers.shift() ?? "view",
+      }),
+    )
+    expect(code).toBe(0)
+    expect(err.join("\n")).toContain("unknown scope")
+    const conn = readCloudConnection(home)
+    expect(conn.ok).toBe(true)
+    if (!conn.ok || conn.connection === null) return
+    expect(conn.connection.scopes).toEqual(["view", "chat"])
+  })
+
+  test("non-interactive pairing without --allow keeps the view-only default", async () => {
+    const home = tempHome()
+    const { io } = capture()
+    const { fetchImpl } = fakeFetch()
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, { fetchImpl }),
+    )
+    expect(code).toBe(0)
+    const conn = readCloudConnection(home)
+    expect(conn.ok).toBe(true)
+    if (!conn.ok || conn.connection === null) return
+    expect(conn.connection.scopes).toEqual(["view"])
+  })
+
   test("refuses root without approval and accepts --allow-root", async () => {
     const home = tempHome()
     const denied = capture()
@@ -156,6 +226,7 @@ describe("sensus cloud pair", () => {
         fetchImpl,
         interactive: true,
         confirm: async () => true,
+        promptText: async () => "view",
         install: async (input: { home: string; runtimeDir: string }) => {
           installs.push(input)
           return 0

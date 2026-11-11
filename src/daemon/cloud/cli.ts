@@ -12,7 +12,7 @@ import { createInterface } from "node:readline/promises"
 import { errorMessage } from "../../core/util.ts"
 import { loadOrCreateIdentity } from "../../auth/identity.ts"
 import { defaultPolicy, readPolicy, writePolicy } from "../../auth/policy.ts"
-import { parseScopeList, hasScope } from "../../auth/scopes.ts"
+import { parseScopeList, hasScope, SCOPES, type Scope } from "../../auth/scopes.ts"
 import { safeUid } from "../../auth/paths.ts"
 import { sensusHomeFrom } from "../../config/config/paths.ts"
 import { SENSUS_VERSION } from "../../version.ts"
@@ -45,6 +45,8 @@ export interface CloudCliOptions {
   interactive?: boolean
   /** Test seam for the install prompt; default reads the TTY. */
   confirm?: (question: string, defaultYes: boolean) => Promise<boolean>
+  /** Test seam for the pairing scope prompt; default reads the TTY. */
+  promptText?: (question: string) => Promise<string>
   /** Test seam for `sensus daemon install`. */
   install?: (opts: { home: string; env: NodeJS.ProcessEnv; runtimeDir: string }) => Promise<number>
   /** Test seam for the local daemon probe. */
@@ -66,7 +68,8 @@ Pairing creates the host identity and scope policy if they do not exist,
 stores the device token at <config>/cloud/connection.json (0600), and opens
 one outbound WebSocket to the pinned cloud origin. No inbound port is opened.
 
-Scopes: view, chat, control, orchestrator (default: view).
+Scopes: view, chat, control, orchestrator.
+Interactive pairing lists them and asks which to grant; the default is view,chat,control.
 Root: pairing as root is refused unless --allow-root (or an interactive yes).
 Run as the Unix user whose daemon should be controlled.
 `
@@ -116,6 +119,35 @@ async function ask(question: string, defaultYes: boolean): Promise<boolean> {
     return answer === "y" || answer === "yes"
   } finally {
     rl.close()
+  }
+}
+
+async function askText(question: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr })
+  try {
+    return (await rl.question(question)).trim()
+  } finally {
+    rl.close()
+  }
+}
+
+/** Scopes an interactive pairing offers unless the user narrows them. */
+const PAIRING_DEFAULT_SCOPES: Scope[] = ["view", "chat", "control"]
+
+async function promptScopes(io: CloudIo, opts: CloudCliOptions): Promise<Scope[]> {
+  io.err("sensus cloud: choose what this cloud may do on this host:")
+  io.err("  view          watch terminals and chats, list shells and chats")
+  io.err("  chat          send prompts, approve tool calls, answer questions")
+  io.err("  control       open shells, type into terminals, resize, take control")
+  io.err("  orchestrator  run Conductor/headless agent jobs")
+  const fallback = PAIRING_DEFAULT_SCOPES.join(",")
+  const askFn = opts.promptText ?? askText
+  for (;;) {
+    const answer = await askFn(`Scopes (comma-separated) [${fallback}]: `)
+    const raw = answer.trim() === "" ? fallback : answer
+    const parsed = raw.trim().toLowerCase() === "all" ? { ok: true as const, scopes: [...SCOPES] } : parseScopeList(raw)
+    if (parsed.ok) return parsed.scopes
+    io.err(`sensus cloud pair: ${parsed.error}`)
   }
 }
 
@@ -386,6 +418,15 @@ async function pairCommand(io: CloudIo, opts: CloudCliOptions, argv: readonly st
     io.err(`sensus cloud pair: ${parsedScopes.error}`)
     return 1
   }
+  let chosenScopes: Scope[] | null = parsedScopes?.ok ? parsedScopes.scopes : null
+  if (allowRaw === undefined && interactive) {
+    try {
+      chosenScopes = await promptScopes(io, opts)
+    } catch (e) {
+      io.err(`sensus cloud pair: ${errorMessage(e)}`)
+      return 1
+    }
+  }
 
   const identity = loadOrCreateIdentity(home, { uid, allowRoot: approvedRoot })
   if (!identity.ok) {
@@ -399,11 +440,11 @@ async function pairCommand(io: CloudIo, opts: CloudCliOptions, argv: readonly st
     return 1
   }
   const policy = existingPolicy.existed
-    ? parsedScopes === null
+    ? chosenScopes === null
       ? existingPolicy.policy
-      : { ...existingPolicy.policy, scopes: parsedScopes.scopes }
-    : { ...defaultPolicy(), scopes: parsedScopes?.scopes ?? defaultPolicy().scopes }
-  if (!existingPolicy.existed || parsedScopes !== null) {
+      : { ...existingPolicy.policy, scopes: chosenScopes }
+    : { ...defaultPolicy(), scopes: chosenScopes ?? defaultPolicy().scopes }
+  if (!existingPolicy.existed || chosenScopes !== null) {
     const written = writePolicy(home, policy, { uid, allowRoot: approvedRoot })
     if (!written.ok) {
       io.err(`sensus cloud pair: ${written.error}`)

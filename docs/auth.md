@@ -47,6 +47,9 @@ sensus cloud disable | enable | unpair
 - `pair` creates the identity and policy when missing, pairs, stores the token, and
   then asks whether to install/enable the daemon's **user** service if no daemon is
   running. The service runs as the user who ran the command.
+- Without `--allow`, an interactive `pair` lists the scopes (`view`, `chat`, `control`,
+  `orchestrator`) with a short explanation and asks which to grant. The default is
+  `view,chat,control`; non-interactive pairing keeps the safe `view` default.
 - `--code` is optional on a TTY: the CLI prompts with echo disabled.
 - `scopes` shows the local policy; with `--allow`, it writes new scopes and reloads the
   daemon so the broker picks them up. Narrowing needs no new pairing code. The cloud caps
@@ -106,7 +109,7 @@ never the quiet default.
   "pairedAt": 1794329831253,
   "scopes": ["view", "chat"],
   "clientKind": "sensus-daemon",
-  "clientVersion": "0.2.0",
+  "clientVersion": "0.2.1",
   "unixUser": "alice",
   "uid": 1000,
   "runsAsRoot": false,

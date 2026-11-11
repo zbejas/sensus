@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -12,7 +12,6 @@ import {
   verifyChallenge,
 } from "../../../src/auth/identity";
 import { defaultPolicy, isCwdAllowed, normalizePolicy, readPolicy, writePolicy, type AuthPolicy } from "../../../src/auth/policy";
-import { runAuth } from "../../../src/auth/cli";
 import { SCOPES } from "../../../src/auth/scopes";
 
 const dirs: string[] = [];
@@ -99,49 +98,17 @@ describe("host policy", () => {
   });
 });
 
-describe("sensus auth CLI", () => {
-  function capture() {
-    const out: string[] = [];
-    const err: string[] = [];
-    return { io: { out: (s: string) => out.push(s), err: (s: string) => err.push(s) }, out, err };
-  }
-
-  test("init creates the identity and default policy", () => {
-    const home = tempHome();
-    const { io, out, err } = capture();
-    expect(runAuth(["init"], io, {}, { home, uid: 1000 })).toBe(0);
-    expect(err).toEqual([]);
-    expect(out.join("\n")).toContain("identity created");
-    expect(out.join("\n")).toContain("scopes      view");
-    expect(JSON.parse(readFileSync(join(home, "auth", "policy.json"), "utf8")).scopes).toEqual(["view"]);
-  });
-
-  test("scopes updates only the policy and status is machine readable", () => {
-    const home = tempHome();
-    const first = capture();
-    expect(runAuth(["init", "--allow", "view,chat"], first.io, {}, { home, uid: 1000 })).toBe(0);
-    const second = capture();
-    expect(runAuth(["scopes", "--allow", "control"], second.io, {}, { home, uid: 1000 })).toBe(0);
-    expect(second.out.join("\n")).toContain("view,control");
-    const status = capture();
-    expect(runAuth(["status", "--json"], status.io, {}, { home, uid: 1000 })).toBe(0);
-    const parsed = JSON.parse(status.out.join("\n"));
-    expect(parsed.initialized).toBe(true);
-    expect(parsed.policy.scopes).toEqual(["view", "control"]);
-    expect(parsed.identity.fingerprint).toMatch(/^[0-9a-f]{4}-/);
-  });
-
-  test("unknown scopes and uninitialized identity fail cleanly", () => {
-    const home = tempHome();
-    const bad = capture();
-    expect(runAuth(["scopes", "--allow", "root"], bad.io, {}, { home, uid: 1000 })).toBe(1);
-    expect(bad.err.join("\n")).toContain("unknown scope");
-    const missing = capture();
-    expect(runAuth(["identity"], missing.io, {}, { home, uid: 1000 })).toBe(1);
-    expect(missing.err.join("\n")).toContain("not initialized");
-  });
-
-  test("the CLI scope alphabet matches the connector contract", () => {
+describe("host auth primitives", () => {
+  test("the scope alphabet matches the cloud protocol", () => {
     expect(SCOPES).toEqual(["view", "chat", "control", "orchestrator"]);
+  });
+
+  test("root is refused by default and allowed with an explicit approval", () => {
+    const home = tempHome();
+    expect(loadOrCreateIdentity(home, { uid: 0 }).ok).toBe(false);
+    expect(writePolicy(home, defaultPolicy(), { uid: 0 }).ok).toBe(false);
+    const identity = loadOrCreateIdentity(home, { uid: 0, allowRoot: true });
+    expect(identity.ok).toBe(true);
+    expect(writePolicy(home, defaultPolicy(), { uid: 0, allowRoot: true }).ok).toBe(true);
   });
 });

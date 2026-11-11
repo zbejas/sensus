@@ -92,6 +92,23 @@ export const memoryTargetSchema = t.Union([t.Literal("memory"), t.Literal("host"
 
 // ── Core ────────────────────────────────────────────────────────────────────
 
+/** Embedded cloud tunnel state (docs/cloud.md). */
+export const cloudStatusSchema = t.Object(
+  {
+    paired: t.Boolean({ description: "True when a local connection.json exists and is readable." }),
+    enabled: t.Boolean({ description: "False when the pairing is kept but the tunnel is disabled." }),
+    cloud: t.Union([t.String(), t.Null()], { description: "Pinned cloud origin." }),
+    instanceId: t.Union([t.String(), t.Null()]),
+    fingerprint: t.Union([t.String(), t.Null()]),
+    unixUser: t.Union([t.String(), t.Null()], { description: "Unix account the daemon runs as." }),
+    runsAsRoot: t.Boolean(),
+    connected: t.Boolean({ description: "True when the outbound tunnel is in the ready state." }),
+    state: t.String({ description: "Tunnel state: unpaired | disabled | error | idle | connecting | handshaking | ready | reconnecting | stopped." }),
+    lastError: t.Union([t.String(), t.Null()]),
+  },
+  { description: "The daemon's view of the paired cloud tunnel; never contains the device token or private key." },
+)
+
 export const healthSchema = t.Object(
   {
     ok: t.Literal(true),

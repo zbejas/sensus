@@ -1,7 +1,7 @@
 /**
  * Host auth files under `<config>/auth/`: the Ed25519 host identity and the
- * local scope policy. Both are owner-only and created atomically. The cloud
- * connector lives in a separate repository and only reads these files.
+ * local scope policy. Both are owner-only and created atomically. The embedded
+ * cloud client (`src/daemon/cloud/`) only reads these files.
  */
 
 import { join } from "node:path"

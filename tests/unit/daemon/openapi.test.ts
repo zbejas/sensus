@@ -172,6 +172,7 @@ describe("daemon OpenAPI/Scalar documentation", () => {
       "mcp",
       "models",
       "usage",
+      "cloud",
     ])
   })
 
@@ -242,6 +243,8 @@ describe("daemon OpenAPI/Scalar documentation", () => {
         "GET /v1/models",
         "POST /v1/models/probe",
         "GET /v1/usage",
+        "GET /v1/cloud/status",
+        "POST /v1/cloud/reload",
       ].sort(),
     )
     // The docs surface documents itself? No — the plugin excludes its own routes.

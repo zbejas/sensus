@@ -6,7 +6,8 @@ User guide: https://sensus.sh/docs/privacy/
 
 Sensus keeps a **durable local record of what it did** and a **stable machine
 identity**, both owned by the `sensus daemon` (D13) and both entirely local:
-there is **no telemetry and no egress** (D8). Two artifacts make up this
+there is **no telemetry and no event-log egress** (D8; the opt-in cloud tunnel
+is outside this path — see "No egress"). Two artifacts make up this
 monitoring seam:
 
 - **`~/.config/sensus/instance.json`** — the installation identity
@@ -163,12 +164,15 @@ proves both halves — no source file references the variable, and a full offlin
 headless turn (plus the sink) calls neither `fetch` nor `Bun.connect`. The turn
 and the sink make no outbound call.
 
-One deliberate exception sits OUTSIDE the event path: the launch update alert
-(`src/update.ts`; [`operations.md`](operations.md) "Update") asks for the latest
-release once a day, cached in the state dir, and `sensus update` does so
-explicitly. `updateCheck: false` (or `SENSUS_UPDATE_CHECK=0`) disables the
-launch check; the engine turn and the sink above never touch the network either
-way. No telemetry, no licence check.
+One deliberate exception sits OUTSIDE the event path: the opt-in cloud tunnel
+(`sensus cloud pair`; [`auth.md`](auth.md)). It forwards the typed terminal/chat
+broker surface the user paired, never event-log records, and only to the pinned
+origin. The launch update alert (`src/update.ts`; [`operations.md`](operations.md)
+"Update") asks for the latest release once a day, cached in the state dir, and
+`sensus update` does so explicitly. `updateCheck: false` (or
+`SENSUS_UPDATE_CHECK=0`) disables the launch check; the engine turn and the sink
+above never touch the network either way. The same is true of the cloud tunnel:
+unpaired means no egress. No telemetry, no licence check.
 
 ## Gotchas & invariants
 

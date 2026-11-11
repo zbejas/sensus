@@ -21,6 +21,7 @@ rules.
 | `tests/unit/engine/importGraph.test.ts` | The one-way `ui → engine` guard: fails if any `agent/`/`config/`/`session/`/`terminal/`/`engine/` file imports `src/ui/**`; also checks the `src/engine/index.ts` barrel loads headlessly |
 | `tests/unit/engine/headlessTurn.test.ts` | A full turn (message → gated tool call → approval → completion) against `mockOpenai.ts` with zero UI imports |
 | `tests/unit/terminal/keys.test.ts`, `scan.test.ts`, `sgr.test.ts`, `paneBg.test.ts` | Key encoding + byte-scanner + SGR palette-rewriter + pane default-background repaint unit tests (the tmux-layer unit tests were removed) |
+| `tests/unit/daemon/cloud*.test.ts`, `tests/unit/cloud/**` | Embedded cloud client: REST status/reload, root approval, no-daemon install prompt, challenge signature + `hello` metadata + brokered `daemon.info` against a fake cloud |
 | `tests/smoke/app.test.ts` | Shell-focused dogfood suite |
 | `tests/smoke/chat.test.ts` | Agent-focused dogfood suite (incl. the MCP scenario) |
 | `tests/smoke/color-fidelity.test.ts` | Color/SGR fidelity guard |

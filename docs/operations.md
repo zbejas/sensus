@@ -48,7 +48,7 @@ and from the compiled binary; the interactive `sensus init` marker just boots th
 | `sensus secrets <cmd>` | Manage the encrypted secrets store: `list`, `set <NAME> <value>`, `rm <NAME>`, `migrate` (docs/config.md "Secrets") |
 | `sensus events tail` | Print the durable local event log (schema v1; `--follow`, `--type <t,t>`, `--since <ms\|ISO>`) ([`events.md`](events.md)) |
 | `sensus triggers tail` | Print the durable local trigger log (`--follow`, `--type <t,t>`) ([`triggers.md`](triggers.md)) |
-| `sensus auth <cmd>` | Host-local pairing: `init`, `identity`, `scopes`, `status`; writes the Ed25519 identity and scope policy under `<config>/auth/` ([`auth.md`](auth.md)) |
+| `sensus cloud <cmd>` | Pair this host with a Sensus Cloud panel: `pair --cloud <url> [--code] [--allow] [--allow-root]`, `scopes [--allow]`, `status [--json]`, `enable`, `disable`, `unpair` ([`auth.md`](auth.md)) |
 | `sensus daemon <cmd>` | Run/manage the local daemon (worker): `serve`, `start`, `stop`, `status`, `logs [--follow]`, `install`/`uninstall [--dry-run]` ([`daemon-api.md`](daemon-api.md)) |
 | `sensus kill` | Kill switch: stop **every** running sensus daemon this user owns (all runtime dirs, current environment included), then remove stale sockets/pids; `--dry-run` lists without killing ([Daemon](#daemon)) |
 | `sensus init` | Boot the TUI with the setup modal open (optional alias for `/init-wizard`) |
@@ -197,6 +197,13 @@ The unit path and the command runner are injectable
 (`src/daemon/service.ts`), so tests never touch the real `$HOME` and never
 invoke `systemctl`/`launchctl`. The persistent service is what makes triggers
 useful with no client attached ([`triggers.md`](triggers.md)).
+
+`sensus cloud pair` uses the same user unit when no daemon is running: it asks
+whether to install/enable the service for the user who ran the command. The
+pairing is saved first, so the daemon opens the tunnel on its next start. A root
+pairing warns that a root user service may need lingering (or a manually managed
+system unit); it is never installed silently. A paired, enabled tunnel pins the
+daemon (no idle exit) even if the service is not installed.
 
 ## Setup wizard
 

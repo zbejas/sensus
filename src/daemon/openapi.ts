@@ -91,6 +91,7 @@ export function daemonOpenApiConfig(version: string) {
         { name: "mcp", description: "Live per-server MCP status facts." },
         { name: "models", description: "The enriched, credential-free model catalog for the picker." },
         { name: "usage", description: "Serializable token-usage roll-ups for the dashboard." },
+        { name: "cloud", description: "The opt-in outbound cloud tunnel: pairing status and reload (docs/cloud.md)." },
       ],
       security: [{ bearerAuth: [] }],
       components: {

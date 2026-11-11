@@ -56,6 +56,9 @@ schema, and resolution order.
 - **Model catalog cache:** `~/.cache/sensus/models-dev.json` (24h TTL; warmed at boot).
 - **Secrets:** `~/.config/sensus/secrets.json` (encrypted) + `~/.config/sensus/.secrets-key`
   (the 0600 master key). `config.json` references them with `${NAME}` — see "Secrets" below.
+- **Cloud pairing:** `~/.config/sensus/cloud/connection.json` (`0600`) — the pinned
+  cloud origin, instance id, device token, fingerprint, user/root metadata, and the
+  enabled flag. Identity/scopes stay in `auth/` ([`auth.md`](auth.md)).
 - **Runtime:** `$SENSUS_RUNTIME_DIR` → `$XDG_RUNTIME_DIR/sensus-<uid>` → `/tmp/sensus-<uid>`
   (`sensusRuntimeDir()`, `src/config/config/paths.ts`). The daemon (`sensus daemon
   serve`) keeps `daemon.sock` (UDS), `daemon.token` (0600 bearer), `daemon.pid` and
@@ -64,10 +67,10 @@ schema, and resolution order.
 - **Test/CI overrides:** `SENSUS_HOME` redirects all of the above; `SENSUS_CACHE_DIR`
   redirects just the cache; `SENSUS_STATE` redirects just the state dir (the search index).
   `SENSUS_MODELS_DEV_URL` overrides the models.dev index URL.
-- **File permissions:** `config.json`, the secrets store + key, session transcripts, and their
-  metadata sidecars are written mode `0600` with parent directories `0700` (the store holds
-  API keys; transcripts hold command output). An existing file/dir is best-effort tightened on
-  the next write.
+- **File permissions:** `config.json`, the secrets store + key, session transcripts, their
+  metadata sidecars, the auth identity/policy, and `cloud/connection.json` are written mode
+  `0600` with parent directories `0700` (the store holds API keys; transcripts hold command
+  output). An existing file/dir is best-effort tightened on the next write.
 
 The full path each of these resolves to is implemented in `src/config/config.ts`
 (`sensusHome`, `sensusDataDir`, `sensusStateDir`, `configPath`, `agentsDir`, …).

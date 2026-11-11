@@ -39,6 +39,10 @@ Sensus only talks to the services you point it at:
   Running `sensus update` downloads the release when you ask for it.
 - **Instruction links you add.** If your configuration lists a URL as an extra instructions
   source, sensus fetches it when it loads your instructions.
+- **Your Sensus Cloud panel, if you pair one.** Pairing is off by default. If you choose to
+  pair, sensus opens one outbound connection to the panel you named, and the cloud can use
+  only the scopes you granted on that machine. It never opens an inbound port, and unpairing
+  stops the connection.
 
 Nothing else. There is no analytics, no crash reporting, and no phone-home. Your terminal
 output is read only locally, to build the context for a message you send.

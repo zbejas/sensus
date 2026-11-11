@@ -1,50 +1,68 @@
-# Auth — host identity and pairing scopes
+# Cloud pairing — host identity, scopes, embedded tunnel
 
 ## Overview
 
-`sensus auth` is the host-local, network-free half of Sensus Cloud pairing. It creates an
-Ed25519 host identity and a local scope policy under `~/.config/sensus/auth/`. The separate
-cloud connector reads those files, signs the cloud challenge with the host key, and enforces
-the scopes before touching the daemon. The cloud never receives the private key and cannot
-write or widen the policy.
+`sensus cloud pair` is the host-local half of Sensus Cloud pairing. It creates an
+Ed25519 host identity and a local scope policy under `<config>/auth/`, exchanges a
+one-time pairing code with the panel, and stores the device token under
+`<config>/cloud/connection.json` (`0600`). The `sensus` daemon then owns one
+outbound WebSocket to the pinned cloud origin. There is no separate connector
+binary and no inbound port.
 
-This module does not open a socket, store a cloud token, or run a relay. It exists so the
-security boundary stays on the Sensus host: the connector lives in the Sensus Cloud project,
-but the identity and the authorization decision do not.
+The private key never leaves the host. The cloud stores only the public key and
+verifies a fresh challenge signature on every reconnect, so a stolen device token
+alone cannot authenticate.
 
 ## Key files
 
 | File | Purpose |
 |---|---|
-| `src/auth/cli.ts` | `sensus auth init/identity/scopes/status` command runner |
-| `src/auth/identity.ts` | Ed25519 keypair generation, storage, fingerprint, challenge signing/verification |
-| `src/auth/policy.ts` | Policy schema, default `view`, scope parsing, cwd allowlist, atomic write |
-| `src/auth/scopes.ts` | The canonical scope tags and implied-`view` rules |
-| `src/auth/paths.ts` | `<config>/auth` paths, owner-only JSON writes, root refusal |
-| `src/auth/index.ts` | Public barrel for the connector/tests |
-| `src/cli.ts` | Routes `sensus auth …` before the TUI nest guard |
-| `src/index.tsx` | Lazily imports the auth runner (keeps the TUI boot path free of it) |
-| `tests/unit/auth/auth.test.ts` | Identity, policy, CLI, permissions, root refusal |
+| `src/auth/identity.ts` | Ed25519 keypair generation/storage, fingerprint, challenge signing/verification |
+| `src/auth/policy.ts` | Policy schema, default `view`, scope normalization, cwd allowlist, atomic write |
+| `src/auth/scopes.ts` | Canonical scope tags and implied-`view` rules |
+| `src/auth/paths.ts` | `<config>/auth` paths, owner-only JSON writes, root helpers |
+| `src/daemon/cloud/cli.ts` | `sensus cloud pair/status/enable/disable/unpair` |
+| `src/daemon/cloud/pairing.ts` | Pairing exchange, whoami preflight, approval polling |
+| `src/daemon/cloud/tunnel.ts` | Outbound WSS, challenge signature, heartbeat, reconnect |
+| `src/daemon/cloud/broker.ts` | Typed broker: op allowlist, scope checks, trust stripping, run lifecycle |
+| `src/daemon/cloud/discovery.ts` / `daemonClient.ts` | Local daemon token/port discovery + one local WS per cloud stream |
+| `src/daemon/cloud/client.ts` | Daemon-owned lifecycle: start/stop/reload, lifetime pin |
+| `src/daemon/cloud/state.ts` / `paths.ts` | `connection.json` + run registry paths |
+| `src/daemon/serve.ts` | Starts/stops the cloud client with the daemon |
+| `src/daemon/lifecycle.ts` | A paired tunnel pins the daemon (no idle exit) |
+| `tests/unit/cloud/**`, `tests/unit/daemon/cloud*.test.ts` | Pairing, root approval, no-daemon prompt, tunnel handshake/RPC |
 
 ## How it works
 
 ### Commands
 
 ```bash
-sensus auth init [--allow view,chat,control,orchestrator]
-sensus auth identity [--json]
-sensus auth scopes [--allow view,chat,control,orchestrator]
-sensus auth status [--json]
+sensus cloud pair --cloud https://cloud.example [--code ABCD-EFGH] \
+  [--allow view,chat,control,orchestrator] [--allow-root] [--no-wait]
+sensus cloud scopes [--allow view,chat,control,orchestrator] [--allow-root] [--json]
+sensus cloud status [--json]
+sensus cloud disable | enable | unpair
 ```
 
-- `init` creates the identity if absent and a `policy.json` if absent. If `--allow` is given,
-  it also sets the scopes. It never regenerates an existing identity.
-- `identity` prints the fingerprint and public key. `--json` is machine-readable.
-- `scopes` with no flag prints the current policy. With `--allow`, it writes the new scopes.
-- `status` prints identity, fingerprint, policy, scopes, cwd allowlist, and the daemon-start
-  flag.
+- `pair` creates the identity and policy when missing, pairs, stores the token, and
+  then asks whether to install/enable the daemon's **user** service if no daemon is
+  running. The service runs as the user who ran the command.
+- `--code` is optional on a TTY: the CLI prompts with echo disabled.
+- `scopes` shows the local policy; with `--allow`, it writes new scopes and reloads the
+  daemon so the broker picks them up. No new pairing code is needed.
+- `status` reports the pinned origin, instance, fingerprint, scopes, Unix user/root,
+  and the live tunnel state. It never prints the device token or private key.
+- `disable` keeps the pairing but stops the tunnel; `unpair` removes the local token
+  and leaves the identity/scopes.
+- `sensus auth …` was folded into `sensus cloud`; it now prints a migration error.
 
-All writes refuse uid 0. Run as the same Unix user that owns the Sensus daemon.
+### Root approval
+
+Pairing and host-scope writes as root are refused by default. `--allow-root` (or an
+interactive `yes`) records the approval and the connection stores `runsAsRoot: true`.
+The daemon then prints a boot warning, `sensus cloud status` shows it, and the cloud
+Fleet panel marks the instance as root. Root is allowed for single-user homelabs; it is
+never the quiet default.
 
 ### Files
 
@@ -72,17 +90,46 @@ All writes refuse uid 0. Run as the same Unix user that owns the Sensus daemon.
 }
 ```
 
-The default policy is `view` only, with no daemon start and no cwd allowlist. `chat`,
-`control`, and `orchestrator` imply `view`; the canonical order is fixed so diffs are
-stable.
+`<config>/cloud/connection.json` (`0600`):
+
+```json
+{
+  "version": 1,
+  "cloud": "https://cloud.example",
+  "instanceId": "inst_…",
+  "deviceToken": "…",
+  "fingerprint": "abcd-efgh-ijkl-mnop",
+  "name": null,
+  "pairedAt": 1794329831253,
+  "scopes": ["view", "chat"],
+  "clientKind": "sensus-daemon",
+  "clientVersion": "0.1.9",
+  "unixUser": "alice",
+  "uid": 1000,
+  "runsAsRoot": false,
+  "enabled": true
+}
+```
+
+The default policy is `view` only. `chat`, `control`, and `orchestrator` imply
+`view`; the canonical order is fixed so diffs are stable.
+
+### Multiple daemons, one cloud
+
+Each daemon has its own config home, runtime dir, identity, and token. Pairing as
+root uses `/root/.config/sensus`; pairing as alice uses
+`/home/alice/.config/sensus`. Both can connect to the same cloud panel and appear
+as separate instances (the cloud names them `host (root)` / `host (alice)` unless
+the pairing code supplied a name). This is the supported multi-daemon model; a
+single root daemon switching users is deliberately not supported.
 
 ### Fingerprint and signature
 
 - Fingerprint: `SHA-256(SPKI DER)`, first 8 bytes, lowercase hex, rendered
   `abcd-efgh-ijkl-mnop`.
-- Connector challenge signature: Ed25519 over the UTF-8 bytes
+- Tunnel challenge signature: Ed25519 over the UTF-8 bytes
   `sensus-cloud/1\n<nonce>\n<instanceId>`.
-- The connector reads the private key from `identity.json`; the cloud stores only the
+- The daemon reads the private key from `identity.json`; the cloud stores only the
   public key and verifies every reconnect.
 
 ### Scopes
@@ -94,37 +141,38 @@ stable.
 | `control` | Terminal controller: open/input/resize/facts/detach. No `terminal.kill` from the cloud |
 | `orchestrator` | Headless runs: dedicated shell + chat, prompt, prompt answers, cleanup |
 
-The connector loads this file when it connects and enforces it before every RPC/stream.
-Restart the connector after changing scopes. The cloud's own scope checks are defense in
-depth; this file is the authorization decision.
+The cloud intersects the host policy with the scopes approved at pairing; the
+host broker still enforces the policy for every op. Restart/reload the daemon after
+changing scopes (`sensus cloud` reloads automatically; otherwise restart it).
+Widening past the approved set requires pairing the host again.
 
 ## Gotchas & invariants
 
-- **Do not regenerate the identity after pairing.** The cloud stores the public key; a new
-  key fails every tunnel handshake until the host is re-paired. `init` preserves an existing
-  identity and returns an error for a corrupt file rather than replacing it.
-- **The private key must never leave the host.** It is `0600`, and no Sensus command prints
-  it. `sensus auth identity` prints only the public key.
-- **`view` is implied.** A policy with `["chat"]` is normalized to `["view", "chat"]`; the
-  connector relies on that rule.
-- **Root is refused for writes.** The identity and policy must belong to the Sensus user;
-  running `sensus auth init` as root fails with a clear error.
-- **No cloud token is stored here.** Pairing with a cloud account and the device token are
-  the connector's job. Sensus only owns the host identity, the fingerprint, and the scopes.
-- **No egress.** This module has no `fetch`, no WebSocket, and no service installer. The
-  connector is installed and supervised by the Sensus Cloud project.
-- **`allowedCwd` is empty by default.** A connector that opens a shell with a cwd must be
-  granted an absolute allowlisted directory; relative paths and symlink escapes are
-  rejected.
-- **Widening scopes may require re-pairing.** The cloud intersects the host policy with the
-  scopes approved when the host was paired. Narrowing applies on the next connector
-  `hello`; widening past the approved set needs the host paired again.
-- **The TUI boot path stays light.** `src/index.tsx` imports `src/auth/cli.ts` lazily; do not
-  import it from `src/index.tsx` at module scope.
+- **Do not regenerate the identity after pairing.** The cloud stores the public key;
+  a new key fails every tunnel handshake until the host is re-paired. `pair`
+  preserves an existing identity and errors on a corrupt file rather than replacing it.
+- **The private key must never leave the host.** It is `0600`, and no command prints it.
+- **`view` is implied.** A policy with `["chat"]` normalizes to `["view", "chat"]`.
+- **Root is opt-in for pairing.** Identity/policy writes default-refuse uid 0; the
+  daemon itself runs as root only because the user started it that way.
+- **No inbound listener.** The host dials one outbound WSS to the pinned origin.
+  The cloud never gets a URL to dial back, and no cloud frame can change the origin.
+- **`unixUser`/`runsAsRoot` are self-reported metadata.** The cloud shows them for
+  disambiguation (root vs uid 1000 on one host), but the authorization boundary is the
+  process owner, the host key, and the local policy.
+- **One pairing per config home.** Multiple daemons = multiple config homes.
+- **A paired tunnel pins the daemon.** It does not idle-exit while the pairing is
+  enabled; install the user service for reboot persistence.
+- **No token expiry yet.** Revocation is immediate in Fleet (`4401`); re-pair to
+  rotate the token.
+- **Legacy connector pairings are not auto-imported.** The standalone
+  `sensus-cloud` connector package has been removed; a host moving from it must
+  re-pair with `sensus cloud pair`. The old token lives in the connector's own
+  home and is no longer read.
 
 ## Related docs
 
-- [`operations.md`](operations.md) — CLI table and where the auth commands sit.
-- [`daemon-api.md`](daemon-api.md) — the local daemon token and WS auth the connector uses.
-- [`architecture.md`](architecture.md) — module map and the no-egress boundary.
-- [`PRODUCT.md`](PRODUCT.md) — the loopback-only daemon decision and the opt-in connector.
+- [`operations.md`](operations.md) — CLI table, service install, lifecycle.
+- [`daemon-api.md`](daemon-api.md) — the local daemon token/WS and `/v1/cloud/*`.
+- [`architecture.md`](architecture.md) — module map and the egress boundary.
+- [`PRODUCT.md`](PRODUCT.md) — the opt-in cloud decision.

@@ -79,16 +79,16 @@ registry row, and every slash hint exists in `SLASH_COMMANDS`. See
 
 | File | Purpose |
 |---|---|
-| `auth/identity.ts` | Ed25519 host identity, fingerprint, challenge signing (the cloud connector verifies on the other side) |
+| `auth/identity.ts` | Ed25519 host identity, fingerprint, challenge signing (the cloud verifies on the other side) |
 | `auth/policy.ts` | Host-local pairing scopes, default `view`, cwd allowlist, atomic 0600 writes |
 | `auth/scopes.ts` | Canonical `view/chat/control/orchestrator` tags and implied-`view` rules |
-| `auth/paths.ts` | `<config>/auth` paths, owner-only JSON writes, root refusal |
-| `auth/cli.ts` | Headless `sensus auth init/identity/scopes/status` |
-| `auth/index.ts` | Barrel for tests; the separate cloud connector reads the files, not this module |
+| `auth/paths.ts` | `<config>/auth` paths, owner-only JSON writes, root helpers |
+| `auth/index.ts` | Barrel for tests and the CLI/daemon |
 
 The auth module is network-free: it exists so the host owns the pairing identity and the
-authorization decision. The outbound connector, cloud token, and stream broker live in the
-separate Sensus Cloud repository; the daemon remains loopback-only.
+authorization decision. The outbound tunnel lives in `src/daemon/cloud/` and is opt-in by
+pairing; it opens one WSS to the pinned cloud origin, and the daemon remains
+loopback-only for local clients.
 
 ### `config/`
 
@@ -285,7 +285,12 @@ P6 adds the opt-in always-on layer: `sensus daemon install/uninstall`
 `serve` in persistent mode, and `triggers.ts` watches the v1 stream for the
 configured `triggers` rules, recording matches to `triggers.jsonl` and
 broadcasting a `trigger` WS event (docs/triggers.md). Still local-only — no
-egress (D8).
+telemetry egress (D8).
+
+The opt-in cloud tunnel (`cloud/`) is the one control-plane egress exception: after
+`sensus cloud pair`, `serve` starts an outbound WSS to the pinned origin, with the
+typed broker enforcing the host policy. It is off until paired, and a paired tunnel
+pins the daemon so the panel can reach it after a reconnect ([`auth.md`](auth.md)).
 
 ### `client/`
 

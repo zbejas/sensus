@@ -1,5 +1,5 @@
 /**
- * The host's Ed25519 pairing identity. Generated once by `sensus auth init`,
+ * The host's Ed25519 pairing identity. Generated once by `sensus cloud pair`,
  * stored at `<config>/auth/identity.json` (0600), and never leaves the host.
  * The cloud stores only the public key; every connector reconnect signs a
  * fresh nonce, so a stolen device token alone cannot authenticate.
@@ -102,13 +102,13 @@ export function readIdentity(home: string): { identity: HostIdentity | null; pre
  */
 export function loadOrCreateIdentity(
   home: string,
-  opts: { uid?: number; now?: () => number } = {},
+  opts: { uid?: number; now?: () => number; allowRoot?: boolean } = {},
 ): IdentityResult {
   const existing = readIdentity(home)
   if (existing.error !== null) return { ok: false, error: existing.error }
   if (existing.identity !== null) return { ok: true, identity: existing.identity, created: false }
-  if ((opts.uid ?? safeUid()) === 0) {
-    return { ok: false, error: "refusing to create the host identity as root (run as the Sensus user)" }
+  if ((opts.uid ?? safeUid()) === 0 && opts.allowRoot !== true) {
+    return { ok: false, error: "refusing to create the host identity as root (pass --allow-root to override)" }
   }
   const identity = generateIdentity((opts.now ?? Date.now)())
   const res = writeAuthJson(authIdentityPath(home), identity)
@@ -117,8 +117,14 @@ export function loadOrCreateIdentity(
 }
 
 /** Write an identity value (0600, atomic); used by tests and repair flows. */
-export function writeIdentity(home: string, identity: HostIdentity, opts: { uid?: number } = {}): { ok: boolean; error?: string } {
-  if ((opts.uid ?? safeUid()) === 0) return { ok: false, error: "refusing to write the host identity as root" }
+export function writeIdentity(
+  home: string,
+  identity: HostIdentity,
+  opts: { uid?: number; allowRoot?: boolean } = {},
+): { ok: boolean; error?: string } {
+  if ((opts.uid ?? safeUid()) === 0 && opts.allowRoot !== true) {
+    return { ok: false, error: "refusing to write the host identity as root (pass --allow-root to override)" }
+  }
   if (normalizeIdentity(identity) === null) return { ok: false, error: "invalid identity" }
   const res = writeAuthJson(authIdentityPath(home), identity)
   return res.ok ? { ok: true } : { ok: false, error: res.error ?? "cannot write the host identity" }

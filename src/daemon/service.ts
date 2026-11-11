@@ -212,6 +212,8 @@ export interface ServiceCommandOptions {
   logPath?: string
   /** Override the runtime dir baked into the unit (tests). */
   runtimeDir?: string
+  /** Pin `SENSUS_HOME` in the unit (pairing with a non-default config home). */
+  sensusHome?: string
   /** Override the command runner (tests) — the real one runs systemctl/launchctl. */
   runner?: CommandRunner
 }
@@ -244,7 +246,11 @@ function resolveServiceContext(opts: ServiceCommandOptions): ServiceContextResul
       argv: [...selfArgv, "daemon", "serve"],
       // Pin the runtime dir so the socket/pid/log the service uses match what an
       // interactive `sensus daemon status|logs` resolves from the same env.
-      env: { SENSUS_DAEMON_PERSISTENT: "1", SENSUS_RUNTIME_DIR: runtimeDir },
+      env: {
+        SENSUS_DAEMON_PERSISTENT: "1",
+        SENSUS_RUNTIME_DIR: runtimeDir,
+        ...(opts.sensusHome !== undefined && opts.sensusHome.length > 0 ? { SENSUS_HOME: opts.sensusHome } : {}),
+      },
       logPath,
       label: kind === "systemd" ? SYSTEMD_UNIT_NAME : LAUNCHD_LABEL,
     },

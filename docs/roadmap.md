@@ -21,7 +21,8 @@ The shipped surface:
 - **`sensus daemon` (worker):** owns the shells and agent turns, re-attachable across client
   restarts. REST/WS contract and lifecycle: [`daemon-api.md`](daemon-api.md).
 - **CLI:** `sensus init`, `sensus secrets`, `sensus --export`, `sensus update` (alias
-  `upgrade`), `sensus daemon …`, and the optional persistent service.
+  `upgrade`), `sensus daemon …`, `sensus cloud …` (opt-in pairing + embedded outbound
+  tunnel), and the optional persistent service.
   [`operations.md`](operations.md) has the full list.
 
 ## Open / post-v1

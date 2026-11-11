@@ -70,6 +70,27 @@ does not stop them. The `daemon` subcommands manage it:
 directory or environment started it, along with the shells they own. Add `--dry-run` to list
 what it would stop first.
 
+## Connect to a cloud panel
+
+Pairing is opt-in and off until you run it. The panel gives you a one-time code; run this on
+the machine you want to reach, as the user whose service should be controlled:
+
+```sh
+sensus cloud pair --cloud https://cloud.example
+sensus cloud status
+sensus cloud scopes              # show the host-granted scopes
+sensus cloud scopes --allow view,chat
+sensus cloud disable             # keep the pairing, stop the connection
+sensus cloud enable
+sensus cloud unpair
+```
+
+The command asks for the code without echoing it. If no local service is running, it offers
+to install and enable one for that user. The host connects outbound to the panel; no inbound
+port is opened. Running as root is refused unless you explicitly approve it, and the panel
+marks such an instance as root. Multiple users on one machine can each pair their own
+service; the panel shows them as separate instances.
+
 ## Read the local logs
 
 ```sh

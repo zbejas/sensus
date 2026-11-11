@@ -99,10 +99,10 @@ export function readPolicy(home: string): PolicyReadResult {
 export function writePolicy(
   home: string,
   policy: AuthPolicy,
-  opts: { uid?: number } = {},
+  opts: { uid?: number; allowRoot?: boolean } = {},
 ): { ok: true; path: string } | { ok: false; error: string } {
-  if ((opts.uid ?? safeUid()) === 0) {
-    return { ok: false, error: "refusing to write the auth policy as root (run as the Sensus user)" }
+  if ((opts.uid ?? safeUid()) === 0 && opts.allowRoot !== true) {
+    return { ok: false, error: "refusing to write the auth policy as root (pass --allow-root to override)" }
   }
   const normalized = normalizePolicy(policy)
   if (normalized === null) return { ok: false, error: "invalid auth policy" }

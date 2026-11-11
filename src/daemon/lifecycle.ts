@@ -117,6 +117,11 @@ export interface DaemonLifecycleDeps {
    */
   hasLiveShells?: () => boolean
   /**
+   * True while a paired, enabled cloud tunnel expects this daemon to stay
+   * reachable (docs/cloud.md "Lifecycle"). Optional; absent ≡ false.
+   */
+  cloudPinned?: () => boolean
+  /**
    * Re-attach window in ms (docs/daemon-api.md "Lifecycle"): a shell idle
    * (no attached client) longer than this is killed by `reapIdleShells`.
    * Omitted / `0` disables reaping. Optional so existing test deps stay valid.
@@ -282,6 +287,9 @@ export class DaemonLifecycle {
     // must stay re-attachable (D1, locked #6). It is released on `exit`/kill,
     // which calls `shellsChanged` and re-arms this clock.
     if (this.deps.hasLiveShells?.() === true) return
+    // A paired cloud tunnel needs the process alive to keep its outbound socket
+    // (and to reconnect after a transient network failure).
+    if (this.deps.cloudPinned?.() === true) return
     this.grace.arm()
   }
 
@@ -292,6 +300,7 @@ export class DaemonLifecycle {
     if (this.deps.anyTurnRunning() || this.deps.pendingPromptChats().length > 0) return
     // A pane that appeared after the clock was armed pins the daemon too.
     if (this.deps.hasLiveShells?.() === true) return
+    if (this.deps.cloudPinned?.() === true) return
     this.shutdown()
   }
 

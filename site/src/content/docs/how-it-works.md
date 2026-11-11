@@ -87,7 +87,9 @@ Sensus feel persistent:
   you attach go to the model endpoint you configure, and MCP tool calls go to the servers you
   connect. Beyond those, Sensus only fetches the public models.dev catalog (model metadata),
   your endpoint's model list, and any instruction links you added to your configuration, when
-  it needs them, and never your terminal output or chat.
+  it needs them, and never your terminal output or chat. If you choose to pair a Sensus Cloud
+  panel, Sensus opens one outbound connection to that panel (nothing inbound); it is off until
+  you pair.
 
 If you ever want to stop everything, `sensus kill` is the switch that stops the local service
 and the shells it owns.

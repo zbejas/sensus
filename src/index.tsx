@@ -24,6 +24,7 @@ import { SENSUS_VERSION } from "./version.ts"
 import type { SensusConfig } from "./config/config.ts"
 import { listRecentSessions, type LoadedSession } from "./session/store.ts"
 import { errorMessage } from "./core/util.ts"
+import { safeUid } from "./auth/paths.ts"
 import { resolvedColorMode } from "./core/colorMode.ts"
 import { resolveTheme, setTheme, theme } from "./theme/theme.ts"
 import { applyThemePersisted, currentThemeName } from "./theme/themePersist.ts"
@@ -55,11 +56,11 @@ async function main(): Promise<number> {
     const { runDaemon } = await import("./daemon/cli.ts")
     return await runDaemon(cli.argv, cliIo, process.env)
   }
-  // Headless host-local pairing identity/scopes (docs/auth.md). No network,
-  // no relay, and no Elysia import on the TUI boot path.
-  if (cli.action === "auth") {
-    const { runAuth } = await import("./auth/cli.ts")
-    return runAuth(cli.argv, cliIo, process.env)
+  // Headless cloud pairing (docs/cloud.md). No network until `pair` runs; the
+  // daemon owns the outbound tunnel after that. No Elysia import on the TUI path.
+  if (cli.action === "cloud") {
+    const { runCloud } = await import("./daemon/cloud/cli.ts")
+    return await runCloud(cli.argv, cliIo, process.env)
   }
   // Headless event-log tail (docs/events.md): `--follow` blocks here.
   if (cli.action === "events") {
@@ -86,6 +87,11 @@ async function main(): Promise<number> {
   // in-app overlay, so the wizard and every later edit share one surface
   // (docs/operations.md "Setup wizard").
   const forceSetup = cli.setup === "force"
+
+  if (safeUid() === 0) {
+    console.error("sensus: warning: running as root. The agent and any paired cloud act as root;")
+    console.error("  this is supported for single-user homelabs but not recommended for shared hosts.")
+  }
 
   const config = loadConfig(argv)
   const dataDir = sensusDataDir()

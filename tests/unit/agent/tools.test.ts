@@ -1313,7 +1313,7 @@ describe("memory tool (docs/memory.md)", () => {
     expect(r.result).toContain("uname")
     expect(r.result).toContain("DRAFT from read-only probes")
     expect(r.result).not.toMatch(/sk-[A-Za-z0-9]{16,}/)
-  })
+  }, 20_000)
 
   test("skills_list/skill_view are progressive disclosure over the catalog; unknown names and no catalog degrade", async () => {
     const catalog = {

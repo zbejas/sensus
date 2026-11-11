@@ -83,6 +83,24 @@ describe("cli", () => {
     expect(handleCli(["kill"], io, { SENSUS_ACTIVE: "1" })).toEqual({ action: "kill", argv: [] })
   })
 
+  test("cloud dispatch is headless and auth points at the new command", () => {
+    const { io, lines } = captureIo()
+    expect(handleCli(["cloud"], io, {})).toEqual({ action: "cloud", argv: [] })
+    expect(handleCli(["cloud", "pair", "--cloud", "https://x"], io, {})).toEqual({
+      action: "cloud",
+      argv: ["pair", "--cloud", "https://x"],
+    })
+    // Still headless inside a sensus pane (handled before the nest guard).
+    expect(handleCli(["cloud", "status"], io, { SENSUS_ACTIVE: "1" })).toEqual({
+      action: "cloud",
+      argv: ["status"],
+    })
+    const migrated = captureIo()
+    expect(handleCli(["auth", "status"], migrated.io, {})).toEqual({ action: "exit", code: 1 })
+    expect(migrated.errors.join("\n")).toContain("moved to `sensus cloud`")
+    expect(lines).toEqual([])
+  })
+
   test("boot flags and unknown args still boot the TUI", () => {
     const { io } = captureIo()
     expect(handleCli([], io, {})).toEqual({ action: "boot" })

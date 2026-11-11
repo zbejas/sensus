@@ -1,11 +1,9 @@
 /**
- * Host-local auth/pairing surface. The cloud connector lives in the separate
- * Sensus Cloud repository and reads these files; this module never opens a
- * socket or talks to the cloud.
+ * Host-local auth/pairing primitives. The embedded cloud client
+ * (`src/daemon/cloud/`) reads these files; this module never opens a socket or
+ * talks to the cloud itself.
  */
 
-export { runAuth } from "./cli.ts"
-export type { AuthCliOptions, AuthIo } from "./cli.ts"
 export {
   challengeSigningInput,
   encodePrivateKey,

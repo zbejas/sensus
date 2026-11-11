@@ -24,7 +24,7 @@ import {
 } from "../engine/index.ts"
 import { auditRoutes } from "./audit/routes.ts"
 import { LegacyAuditJsonlSource, type AuditSource } from "./audit/reader.ts"
-import { agentsResponseSchema, configResponseSchema, healthSchema, infoSchema, jsonResponse, skillsResponseSchema, unauthorizedResponse } from "./apiSchemas.ts"
+import { agentsResponseSchema, cloudStatusSchema, configResponseSchema, healthSchema, infoSchema, jsonResponse, skillsResponseSchema, unauthorizedResponse } from "./apiSchemas.ts"
 import { ensureAgentDirs } from "../config/agents.ts"
 import { bearerAuth } from "./auth.ts"
 import { mcpRoutes } from "./mcp.ts"
@@ -33,6 +33,7 @@ import { modelRoutes, type DaemonModelsResult, type ProbeEndpointInput, type Pro
 import { daemonOpenApiConfig, docsTrailingSlashRedirect } from "./openapi.ts"
 import { sessionRoutes } from "./sessions/routes.ts"
 import { settingsRoutes } from "./settings.ts"
+import type { CloudStatus } from "./cloud/client.ts"
 import { buildUsageReport, usageRoutes, type DaemonUsageReport } from "./usage.ts"
 
 /** `GET /v1/info` payload — no secrets. */
@@ -111,12 +112,30 @@ export interface DaemonAppOptions {
   usage?: () => DaemonUsageReport
   /** Fired after a successful `PUT /v1/config` (the daemon reloads its chats). */
   onConfigWrite?: () => void
+  /** Embedded cloud tunnel status/reload (docs/cloud.md). */
+  cloud?: {
+    status: () => import("./cloud/client.ts").CloudStatus
+    reload: () => Promise<import("./cloud/client.ts").CloudStatus>
+  }
 }
 
 const NAME = "sensus-daemon" as const
 
 /** Build the daemon app; callers bind it (see `serve.ts`). */
 export function createDaemonApp(opts: DaemonAppOptions) {
+  const unpairedCloud: CloudStatus = {
+    paired: false,
+    enabled: false,
+    cloud: null,
+    instanceId: null,
+    fingerprint: null,
+    unixUser: null,
+    runsAsRoot: false,
+    connected: false,
+    state: "unpaired",
+    lastError: null,
+  }
+  const cloudStatus = (): CloudStatus => opts.cloud?.status() ?? unpairedCloud
   return new Elysia({ name: NAME })
     // Canonicalise a trailing-slash docs URL before routing: Scalar's relative
     // spec URL breaks at `/openapi/` (see `docsTrailingSlashRedirect`).
@@ -143,6 +162,31 @@ export function createDaemonApp(opts: DaemonAppOptions) {
         config: opts.config ?? (() => ({})),
         onWritten: opts.onConfigWrite,
       }),
+    )
+    .get("/v1/cloud/status", () => cloudStatus(), {
+      detail: {
+        tags: ["cloud"],
+        operationId: "getCloudStatus",
+        summary: "Cloud pairing status",
+        description: "The pinned cloud origin, instance/fingerprint, Unix user, root flag, and live tunnel state. Never returns the device token or host private key.",
+        responses: { 200: jsonResponse(cloudStatusSchema, "Cloud tunnel status."), 401: unauthorizedResponse() },
+      },
+    })
+    .post(
+      "/v1/cloud/reload",
+      async () => {
+        if (opts.cloud === undefined) return unpairedCloud
+        return await opts.cloud.reload()
+      },
+      {
+        detail: {
+          tags: ["cloud"],
+          operationId: "reloadCloudTunnel",
+          summary: "Reload the cloud pairing",
+          description: "Re-reads `<config>/cloud/connection.json` and reconnects or stops the outbound tunnel. Used by `sensus cloud pair|enable|disable|unpair`.",
+          responses: { 200: jsonResponse(cloudStatusSchema, "Reloaded status."), 401: unauthorizedResponse() },
+        },
+      },
     )
     .get("/v1/health", () => ({ ok: true, name: NAME, version: opts.version }), {
       detail: {

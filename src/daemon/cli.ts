@@ -33,6 +33,7 @@ import { compiledEntry, daemonSelfArgv } from "./selfExec.ts"
 import { installService, uninstallService } from "./service.ts"
 import { displayHost, startDaemon } from "./serve.ts"
 import { ensureRuntimeDir, readPidFile, readToken, writePidFile } from "./token.ts"
+import { safeUid } from "../auth/paths.ts"
 
 /** Re-exported for compatibility; the implementation is Elysia-free (selfExec.ts). */
 export { daemonSelfArgv, compiledEntry } from "./selfExec.ts"
@@ -293,6 +294,10 @@ async function serveForeground(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<Da
   const dir = sensusRuntimeDirFrom(env)
   const pidPath = daemonPidPath(dir)
   const socketPath = daemonSocketPath(dir)
+  if (safeUid() === 0) {
+    io.err("sensus daemon: warning: running as root. The agent and any paired cloud act as root;")
+    io.err("  this is supported for single-user homelabs but not recommended for shared hosts.")
+  }
 
   // Refuse to steal a live daemon's socket: startDaemon unlinks a stale socket,
   // so a second `serve` on a healthy daemon would clobber it. The same checks
@@ -375,6 +380,9 @@ async function serveForeground(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<Da
     previous,
     // SENSUS_MODELS_DEV_WARM=0 opts out (tests/reproducible boots).
     warmCatalog: env["SENSUS_MODELS_DEV_WARM"] !== "0",
+    // The embedded cloud tunnel is opt-in by pairing; start it on boot so a
+    // paired host reconnects after a restart (docs/cloud.md "Lifecycle").
+    startCloud: true,
   })
   if (!res.ok) {
     io.err(`sensus daemon: ${res.error}`)

@@ -107,9 +107,11 @@ These are the project owner's decisions; they are constraints on every change.
    grace-exits when it is idle (no client, no work, and no live pane shell) unless run as the
    opt-in persistent service — a live pane shell pins it so the terminal survives a client
    kill/restart. `sensus daemon stop` tears everything down and kills the PTY children.
-   Remote pairing is opt-in and split: Sensus owns the host identity and host-local scopes
-   (`sensus auth`), while the outbound connector lives in the separate Sensus Cloud project.
-   The daemon itself still makes no control-plane egress and never binds publicly.
+   Remote pairing is opt-in and host-owned: `sensus cloud pair` creates the host
+   identity and host-local scopes, and the daemon opens one outbound tunnel to the
+   pinned cloud origin. There is no separate connector binary. The daemon never
+   binds publicly, makes no other control-plane egress, and the cloud cannot widen
+   the host policy.
 7. **Approval default:** `confirm` — every tool call gets an inline card (reads included;
    pane typing runs free but every Enter is confirmed; `ask_user` renders its question
    inline) unless you saved an allow rule. `/yolo` flips to `full-auto`.

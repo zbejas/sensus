@@ -43,6 +43,8 @@ import { createWsEndpoint, resolveGraceMs, type WsSocketData } from "./ws.ts"
 import { createTriggerSink, TriggerEngine, type TriggerRecord } from "./triggers.ts"
 import { DaemonLifecycle, resolveApprovalTimeoutMs, resolvePersistent, resolveReattachMaxAgeMs } from "./lifecycle.ts"
 import { ensureRuntimeDir, generateToken, writeToken } from "./token.ts"
+import { createCloudClient, type CloudClient } from "./cloud/client.ts"
+import { safeUid } from "../auth/paths.ts"
 import type { PtySession, PtySessionOptions } from "../engine/index.ts"
 
 export interface StartDaemonOptions {
@@ -83,6 +85,14 @@ export interface StartDaemonOptions {
   warmCatalog?: boolean
   /** Test seam: config home for the agents/skills listings. */
   home?: string
+  /**
+   * Start the embedded cloud tunnel when a pairing exists (docs/cloud.md).
+   * Defaults OFF so `startDaemon` callers/tests stay network-free; the
+   * `sensus daemon` CLI enables it.
+   */
+  startCloud?: boolean
+  /** Test seam: inject a cloud client instead of reading the config home. */
+  cloud?: CloudClient
   /** Flag list used to resolve config; defaults to the daemon's own args. */
   argv?: readonly string[]
   /** Default shell for `terminal.open`; defaults to the config `shell` (`$SHELL`). */
@@ -124,6 +134,8 @@ export type StartDaemonResult =
       token: string
       /** The live shell registry (tests/lifecycle; D4/D11/D12). */
       registry: ShellRegistry
+      /** The embedded cloud client (inert when unpaired). */
+      cloud: CloudClient
       /** Tear everything down. `reason` is recorded on `daemon stopping`
        * (docs/logging.md); idempotent — only the first call's reason lands. */
       stop: (reason?: string) => void
@@ -402,6 +414,9 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
     // exists it must not idle-exit and reap it, so a killed/restarted client can
     // re-attach and a running command survives (docs/daemon-api.md "Lifecycle").
     hasLiveShells: () => registry.list().length > 0,
+    // A paired, enabled cloud tunnel pins the daemon: the panel expects this
+    // process to keep the outbound socket alive (docs/cloud.md "Lifecycle").
+    cloudPinned: () => cloud.pinned(),
     // Kill shells left unattended past the re-attach window: once killed, the
     // bound chat is released and the session is unrecoverable (no re-attach) —
     // a session from a previous workday cannot be resumed later.
@@ -445,6 +460,12 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
     }
   }
 
+  const cloud =
+    opts.cloud ??
+    (opts.startCloud === true
+      ? createCloudClient({ home: homeDir, runtimeDir, version: SENSUS_VERSION })
+      : createCloudClient({ startTunnel: false, version: SENSUS_VERSION }))
+
   const app = createDaemonApp({
     token,
     version: SENSUS_VERSION,
@@ -455,6 +476,10 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
     sessionsDataDir: dataDir,
     config: opts.config ?? (() => readRedactedConfig(configArgv)),
     home: homeDir,
+    cloud: {
+      status: () => cloud.status(),
+      reload: () => cloud.reload(),
+    },
     // P4c-ii engine-free readouts: the client's pickers/overlays source these
     // from the daemon (D13). `config()` is invalidated on a settings write so a
     // subsequent catalog/usage read reflects the new config.
@@ -535,6 +560,11 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
     if (stopped) return
     stopped = true
     log.child({ component: "daemon.serve" }).info("daemon stopping", { socket: socketPath, reason })
+    // Close the cloud tunnel first: it owns local WS streams and must not try to
+    // reconnect while the daemon is tearing down (docs/cloud.md "Lifecycle").
+    void cloud.stop().catch((e: unknown) => {
+      log.child({ component: "daemon.serve" }).debug("cloud.stop failed in teardown", { err: e })
+    })
     // Cancel the lifetime timers and the lifecycle event subscription first so
     // no grace/approval callback fires mid-teardown.
     try {
@@ -606,6 +636,15 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
   }
   stopRef = stop
 
+  // Start the outbound cloud tunnel only after every listener and `stop` exist;
+  // it is inert (no socket) when there is no pairing or it is disabled. A bad
+  // cloud state must never take the daemon down (AGENTS rule 10).
+  try {
+    await cloud.start()
+  } catch (e) {
+    log.child({ component: "daemon.serve" }).error("cloud client start failed", { err: e })
+  }
+
   // Arm the startup grace only once every listener and `stop` exist: a daemon
   // that never gets a client still idle-exits (D9).
   lifecycle.start()
@@ -643,6 +682,7 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
     tcp: { host: tcpServer.hostname ?? host, port: tcpServer.port ?? 0 },
     token,
     registry,
+    cloud,
     stop,
   }
 }

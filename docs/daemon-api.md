@@ -35,12 +35,14 @@ sensus (client)                          sensus daemon (worker; Elysia)
 | `src/daemon/auth.ts` | Bearer auth (`bearerFrom`, `safeEqual`, `bearerAuth` global hook) |
 | `src/daemon/token.ts` | Runtime dir (`0700`) + token/pidfile (`0600`) helpers; never throws |
 | `src/daemon/paths.ts` | `daemonRuntimeDir` + `daemon.sock` / `daemon.token` / `daemon.pid` / `daemon.log` (raw stdio banner) / `daemon-log.jsonl` (structured log) |
-| `src/daemon/serve.ts` | `startDaemon`: binds UDS (REST) + loopback TCP (REST + WS), builds/reuses `instance.json`, defaults the sink to `JsonlEventSink` (docs/events.md), configures the structured logger at `<runtimeDir>/daemon-log.jsonl` (docs/logging.md), returns `{unix,tcp,token,registry,stop}` |
+| `src/daemon/serve.ts` | `startDaemon`: binds UDS (REST) + loopback TCP (REST + WS), builds/reuses `instance.json`, defaults the sink to `JsonlEventSink` (docs/events.md), configures the structured logger at `<runtimeDir>/daemon-log.jsonl` (docs/logging.md), starts the opt-in cloud tunnel, returns `{unix,tcp,token,registry,cloud,stop}` |
+| `src/daemon/cloud/` | Embedded cloud client (docs/auth.md): pairing, outbound WSS, typed broker, local stream client, run registry |
+| `src/daemon/cloud/cli.ts` | `sensus cloud {pair,status,enable,disable,unpair}` |
 | `src/daemon/logStrict.ts` | `logStrictEnabled`: the `SENSUS_LOG_STRICT=1` gate for the allow-listed rethrow sites |
 | `src/daemon/shells.ts` | `ShellRegistry`: the daemon-owned PTY shells, roles (D11), the bounded replay buffer (D12), client facts (D2) |
 | `src/daemon/chats.ts` | `ChatRegistry`: the daemon-owned agent chats — opens `ChatSession`s through `ChatHost`, mirrors the engine `ChatEvent` stream, answers approvals via `resolveCard` and sudo via the `requestSudo` dep, and derives the `ChatMeta` readouts (P4c-ii) |
 | `src/daemon/ws.ts` | `GET /v1/ws`: upgrade + auth, the request/response/event envelope, the terminal + chat op dispatch, bounded per-client queues, the `hello`/grace seam |
-| `src/daemon/lifecycle.ts` | The lifetime policy (P3c-iii): grace/idle exit (held while a live pane shell exists), the idle reaper that kills panes inactive past the re-attach window (`SENSUS_DAEMON_REATTACH_MAX_AGE_MS`), detached-turn keep-alive, the no-client approval hold, and the pure `versionMismatchAction` handshake helper |
+| `src/daemon/lifecycle.ts` | The lifetime policy (P3c-iii): grace/idle exit (held while a live pane shell or a paired cloud tunnel exists), the idle reaper that kills panes inactive past the re-attach window (`SENSUS_DAEMON_REATTACH_MAX_AGE_MS`), detached-turn keep-alive, the no-client approval hold, and the pure `versionMismatchAction` handshake helper |
 | `src/daemon/cli.ts` | `sensus daemon {serve,start,stop,restart,status,logs,install,uninstall}` lifecycle |
 | `src/daemon/service.ts` | The persistent user service (P6): systemd/launchd unit rendering + install/uninstall through an injectable runner |
 | `src/daemon/triggers.ts` | Local condition triggers (P6): rule matching + the bounded `triggers.jsonl` writer + the sink decoration |
@@ -158,6 +160,8 @@ Scalar reference above.
 | GET | `/v1/models` | `{ ok, endpoints[], errors[] }` — the enriched, credential-free model catalog (P4c-ii) |
 | POST | `/v1/models/probe` | `{ ok, models[], error }` — probe a DRAFT endpoint (provider/baseURL/apiKey) before saving |
 | GET | `/v1/usage` | `{ ok, windowDays, generatedAt, total, byDay[], bySession[], sessions[] }` — usage roll-ups (P4c-ii) |
+| GET | `/v1/cloud/status` | `{ paired, enabled, cloud, instanceId, fingerprint, unixUser, runsAsRoot, connected, state, lastError }` — never the device token/private key |
+| POST | `/v1/cloud/reload` | Re-read `<config>/cloud/connection.json`, stop/reconnect the outbound tunnel, return the new status |
 | GET | `/v1/secrets` | `{ ok, names[], warnings }` — stored secret NAMES (never values) |
 | POST | `/v1/secrets` | `{ ok, name }` or `{ ok:false, message }` — set one secret |
 | DELETE | `/v1/secrets` | `{ ok, name, removed }` or `{ ok:false, message }` — remove one (`?name=`) |
@@ -767,8 +771,10 @@ daemon in persistent mode; P6) is implemented in `src/daemon/service.ts` — see
   `ChatSession.resolveCard` — the same enforcement point as the TUI — so the
   destructive floor, session trust, `permission` rules and the extensions
   `ApprovalPolicy` behave identically. The daemon never decides a gate itself.
-- **No network egress.** The daemon is loopback-only and makes no outbound calls
-  (D8); there is no telemetry.
+- **No network egress by default.** The daemon binds loopback only and makes no
+  outbound calls until the user pairs a cloud (`sensus cloud pair`); that one
+  outbound WSS to the pinned origin is the deliberate opt-in exception
+  ([`auth.md`](auth.md)). There is no telemetry.
 - **Headless.** `src/index.tsx` loads `src/daemon/cli.ts` lazily, so the TUI boot
   path never pulls in Elysia; the daemon itself imports the engine only
   (`src/engine/index.ts`), never `src/ui/**`.

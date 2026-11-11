@@ -103,7 +103,7 @@ never the quiet default.
   "pairedAt": 1794329831253,
   "scopes": ["view", "chat"],
   "clientKind": "sensus-daemon",
-  "clientVersion": "0.1.9",
+  "clientVersion": "0.2.0",
   "unixUser": "alice",
   "uid": 1000,
   "runsAsRoot": false,

@@ -49,7 +49,10 @@ sensus cloud disable | enable | unpair
   running. The service runs as the user who ran the command.
 - `--code` is optional on a TTY: the CLI prompts with echo disabled.
 - `scopes` shows the local policy; with `--allow`, it writes new scopes and reloads the
-  daemon so the broker picks them up. No new pairing code is needed.
+  daemon so the broker picks them up. Narrowing needs no new pairing code. The cloud caps
+  host scopes at the set approved when the host paired, so widening beyond that set (for
+  example a view-only pairing) needs a new pairing code and
+  `sensus cloud pair --allow view,chat,control`.
 - `status` reports the pinned origin, instance, fingerprint, scopes, Unix user/root,
   and the live tunnel state. It never prints the device token or private key.
 - `disable` keeps the pairing but stops the tunnel; `unpair` removes the local token

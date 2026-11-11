@@ -91,6 +91,14 @@ port is opened. Running as root is refused unless you explicitly approve it, and
 marks such an instance as root. Multiple users on one machine can each pair their own
 service; the panel shows them as separate instances.
 
+The scopes are the host's own policy, but the cloud remembers the set approved when you
+paired. `sensus cloud scopes --allow` cannot add scopes beyond that set. To widen a view-only
+pairing, request a new pairing code in the panel, then pair again with the scopes you want:
+
+```sh
+sensus cloud pair --cloud https://cloud.example --allow view,chat,control
+```
+
 ## Read the local logs
 
 ```sh

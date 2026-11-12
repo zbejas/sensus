@@ -26,7 +26,14 @@
 import { closeSync, existsSync, openSync, readFileSync, rmSync, statSync } from "node:fs"
 import { flushLoggerSync, LOG_LEVELS, parseLogLine, type LogLevel, type LogRecord } from "../core/log.ts"
 import { sensusHomeFrom, sensusRuntimeDirFrom } from "../engine/index.ts"
-import { daemonLogJsonlPath, daemonLogPath, daemonPidPath, daemonSocketPath, daemonTokenPath } from "./paths.ts"
+import {
+  daemonLogJsonlPath,
+  daemonLogPath,
+  daemonPidPath,
+  daemonServiceLogPath,
+  daemonSocketPath,
+  daemonTokenPath,
+} from "./paths.ts"
 import { componentLogger } from "./log.ts"
 import { DOCS_PATH } from "./openapi.ts"
 import { compiledEntry, daemonSelfArgv } from "./selfExec.ts"
@@ -55,7 +62,7 @@ const USAGE = `usage: sensus daemon <command>
   restart      stop then start the daemon
   status       show the pid and a health probe
   logs         render the daemon's structured log (daemon-log.jsonl)
-  install      install the persistent user service (systemd/launchd; --dry-run)
+  install      install the persistent user service (systemd/launchd; --dry-run, --linger)
   uninstall    remove the persistent user service (--dry-run)
 
 sensus daemon logs [flags]
@@ -802,7 +809,6 @@ async function followStructuredLog(
 async function logsDaemon(args: readonly string[], io: DaemonIo, env: NodeJS.ProcessEnv): Promise<DaemonRunResult> {
   const dir = sensusRuntimeDirFrom(env)
   const logPath = daemonLogJsonlPath(dir)
-  const bannerPath = daemonLogPath(dir)
   const { opts, error } = parseLogsOptions(args)
   if (error !== null) {
     io.err(`sensus daemon logs: ${error}`)
@@ -811,9 +817,11 @@ async function logsDaemon(args: readonly string[], io: DaemonIo, env: NodeJS.Pro
 
   if (!existsSync(logPath)) {
     io.out(`(no daemon log yet — ${logPath})`)
-    if (existsSync(bannerPath)) {
+    const banners = [daemonLogPath(dir), daemonServiceLogPath(env)]
+    const banner = banners.find((path) => existsSync(path))
+    if (banner !== undefined) {
       io.out(
-        `daemon.log exists but holds the raw stdio banner, not the structured log — see ${bannerPath}`,
+        `daemon.log exists but holds the raw stdio banner, not the structured log — see ${banner}`,
       )
     }
     return 0

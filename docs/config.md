@@ -63,7 +63,10 @@ schema, and resolution order.
   (`sensusRuntimeDir()`, `src/config/config/paths.ts`). The daemon (`sensus daemon
   serve`) keeps `daemon.sock` (UDS), `daemon.token` (0600 bearer), `daemon.pid` and
   `daemon.log` here (D7; [`daemon-api.md`](daemon-api.md)). The dir is `0700`; the
-  socket/token/pid are `0600`. The TUI does not read it.
+  socket/token/pid are `0600`. The TUI does not read it. The **persistent service**
+  keeps its raw stdio banner in the state dir instead
+  (`~/.local/state/sensus/logs/daemon.log`, `daemonServiceLogPath`): the runtime dir
+  is tmpfs and the service manager opens stdio before the daemon creates it.
 - **Test/CI overrides:** `SENSUS_HOME` redirects all of the above; `SENSUS_CACHE_DIR`
   redirects just the cache; `SENSUS_STATE` redirects just the state dir (the search index).
   `SENSUS_MODELS_DEV_URL` overrides the models.dev index URL.

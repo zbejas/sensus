@@ -157,7 +157,8 @@ banner; see [`daemon-api.md`](daemon-api.md)). Pretty on a TTY, raw NDJSON when 
   path uses a built-in ~200 ms polling tail (rendering and filtering cannot go through
   `tail`), stopping cleanly on SIGINT.
 - Missing structured file: prints `(no daemon log yet — <path>)`, and if a raw `daemon.log`
-  exists, says so (it is the banner, not the structured log).
+  exists (detached banner in the runtime dir or persistent service banner in the state
+  dir), names it (it is the banner, not the structured log).
 
 ### Env vars
 
@@ -176,7 +177,9 @@ banner; see [`daemon-api.md`](daemon-api.md)). Pretty on a TTY, raw NDJSON when 
   module load would freeze the pre-`configureLogger` (stderr) handle, because `serve.ts`
   configures the file logger only inside `startDaemon`, after every daemon module imported.
 - **Two different files.** `daemon-log.jsonl` is the structured log; `daemon.log` is the
-  detached process's raw stdio banner. `daemonLogJsonlPath` vs `daemonLogPath`.
+  raw stdio banner. `daemonLogJsonlPath`/`daemonLogPath` cover `daemon start`; the
+  persistent service uses `daemonServiceLogPath` in the state dir because the runtime dir
+  is tmpfs and the service manager opens stdio before the daemon runs.
 - **The pretty renderer in `core/log.ts` is not exported.** The CLI owns its own small copy;
   keep the ANSI palette identical when either changes.
 - **The daemon never writes the structured log through `src/ui/**`.** `core/log.ts` imports

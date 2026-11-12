@@ -34,7 +34,7 @@ sensus (client)                          sensus daemon (worker; Elysia)
 | `src/daemon/app.ts` | `createDaemonApp`: the Elysia app, route registration, the defensive `onError` JSON shape |
 | `src/daemon/auth.ts` | Bearer auth (`bearerFrom`, `safeEqual`, `bearerAuth` global hook) |
 | `src/daemon/token.ts` | Runtime dir (`0700`) + token/pidfile (`0600`) helpers; never throws |
-| `src/daemon/paths.ts` | `daemonRuntimeDir` + `daemon.sock` / `daemon.token` / `daemon.pid` / `daemon.log` (raw stdio banner) / `daemon-log.jsonl` (structured log) |
+| `src/daemon/paths.ts` | `daemonRuntimeDir` + `daemon.sock` / `daemon.token` / `daemon.pid` / `daemon.log` (raw stdio banner) / `daemon-log.jsonl` (structured log); `daemonServiceLogPath` is the persistent service banner in the state dir |
 | `src/daemon/serve.ts` | `startDaemon`: binds UDS (REST) + loopback TCP (REST + WS), builds/reuses `instance.json`, defaults the sink to `JsonlEventSink` (docs/events.md), configures the structured logger at `<runtimeDir>/daemon-log.jsonl` (docs/logging.md), starts the opt-in cloud tunnel, returns `{unix,tcp,token,registry,cloud,stop}` |
 | `src/daemon/cloud/` | Embedded cloud client (docs/auth.md): pairing, outbound WSS, typed broker, local stream client, run registry |
 | `src/daemon/cloud/cli.ts` | `sensus cloud {pair,status,enable,disable,unpair}` |

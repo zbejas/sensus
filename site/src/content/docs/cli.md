@@ -63,7 +63,7 @@ does not stop them. The `daemon` subcommands manage it:
 | `sensus daemon restart` | Stop, then start |
 | `sensus daemon serve` | Run it in the foreground (what the always-on service runs) |
 | `sensus daemon logs` | Read the structured log (below) |
-| `sensus daemon install` | Install an always-on user service (systemd or launchd) |
+| `sensus daemon install` | Install an always-on user service (systemd or launchd); `--linger` keeps a systemd user service running after logout |
 | `sensus daemon uninstall` | Remove that service |
 
 `sensus kill` is the global switch: it stops every sensus service this user runs, whatever
@@ -90,6 +90,13 @@ to install and enable one for that user. The host connects outbound to the panel
 port is opened. Running as root is refused unless you explicitly approve it, and the panel
 marks such an instance as root. Multiple users on one machine can each pair their own
 service; the panel shows them as separate instances.
+
+On Linux, the always-on service is a user service. Manage it with `systemctl --user`,
+not `sudo systemctl` — the system manager cannot see a user unit. The service starts
+when that user's user manager starts; on a headless machine nobody logs in, so add
+`--linger` to `sensus daemon install` (or run `loginctl enable-linger <user>`) to start
+it at boot. If `loginctl show-user <user> -p Linger` reports `Linger=no`, install prints
+the exact command; `--linger` runs it for you.
 
 Without an explicit `--allow` list, pairing explains and lists the four scopes — `view`,
 `chat`, `control`, and `orchestrator` — and asks which to grant. Pressing Enter grants

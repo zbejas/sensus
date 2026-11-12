@@ -48,8 +48,8 @@ and from the compiled binary; the interactive `sensus init` marker just boots th
 | `sensus secrets <cmd>` | Manage the encrypted secrets store: `list`, `set <NAME> <value>`, `rm <NAME>`, `migrate` (docs/config.md "Secrets") |
 | `sensus events tail` | Print the durable local event log (schema v1; `--follow`, `--type <t,t>`, `--since <ms\|ISO>`) ([`events.md`](events.md)) |
 | `sensus triggers tail` | Print the durable local trigger log (`--follow`, `--type <t,t>`) ([`triggers.md`](triggers.md)) |
-| `sensus cloud <cmd>` | Pair this host with a Sensus Cloud panel: `pair --cloud <url> [--code] [--allow] [--allow-root]`, `scopes [--allow]`, `status [--json]`, `enable`, `disable`, `unpair` ([`auth.md`](auth.md)) |
-| `sensus daemon <cmd>` | Run/manage the local daemon (worker): `serve`, `start`, `stop`, `status`, `logs [--follow]`, `install`/`uninstall [--dry-run]` ([`daemon-api.md`](daemon-api.md)) |
+| `sensus cloud <cmd>` | Pair this host with a Sensus Cloud panel: `pair --cloud <url> [--code] [--allow] [--allow-root] [--no-wait]`, `scopes [--allow]`, `status [--json]`, `doctor [--json]`, `enable`, `disable`, `unpair` ([`auth.md`](auth.md)) |
+| `sensus daemon <cmd>` | Run/manage the local daemon (worker): `serve`, `start`, `stop`, `status`, `logs [--follow]`, `install [--dry-run|--linger]`/`uninstall [--dry-run]` ([`daemon-api.md`](daemon-api.md)) |
 | `sensus kill` | Kill switch: stop **every** running sensus daemon this user owns (all runtime dirs, current environment included), then remove stale sockets/pids; `--dry-run` lists without killing ([Daemon](#daemon)) |
 | `sensus init` | Boot the TUI with the setup modal open (optional alias for `/init-wizard`) |
 | `sensus init --create-config` | Headless: scaffold `~/.config/sensus/config.json` (never overwrites) |
@@ -96,7 +96,7 @@ the daemon runner lazily, so a normal TUI boot never pulls in Elysia.
 | `sensus daemon restart` | Stop (idempotent when not running) then start, reporting each step. |
 | `sensus daemon status` | Print pid + a `/v1/health` probe; exit 0 when healthy, 1 otherwise. Also prints the loopback Scalar docs URL when `/v1/info` is reachable. |
 | `sensus daemon logs [--json|--pretty] [--level <lvl>] [--component <s>] [--follow]` | Render the STRUCTURED log `daemon-log.jsonl` (pretty on a TTY, raw NDJSON when piped). Filters and follow: see "Structured daemon log" below. |
-| `sensus daemon install` / `uninstall` | Write/remove a **user** service unit (systemd/launchd) that runs the daemon in persistent mode; `--dry-run` prints the unit/plan instead of acting. Never root, never a system-wide path. |
+| `sensus daemon install` / `uninstall` | Write/remove a **user** service unit (systemd/launchd) that runs the daemon in persistent mode; `--dry-run` prints the unit/plan instead of acting and `--linger` enables systemd lingering. Never requires root, never a system-wide path. |
 
 **Kill switch (`sensus kill`).** `sensus daemon stop` targets the daemon this
 environment owns; `sensus kill` is the global escape hatch. It scans the
@@ -180,16 +180,36 @@ never touches a system-wide path:
 | macOS | `~/Library/LaunchAgents/com.sensus.daemon.plist` | `launchctl load -w <plist>` / `unload -w <plist>` |
 
 The unit runs `sensus daemon serve` with `SENSUS_DAEMON_PERSISTENT=1` and
-`SENSUS_RUNTIME_DIR=<the installing shell's runtime dir>` (so the socket/pid/log
-match an interactive `sensus daemon status|logs`), using the same self-exec argv
-as `daemon start` (`daemonSelfArgv`, so the compiled binary and dev agree). It
-restarts on failure (`Restart=on-failure` / `KeepAlive`) and points the
-service's stdout/stderr at `daemon.log` in the runtime dir.
+`SENSUS_RUNTIME_DIR=<the installing shell's runtime dir>` (so the socket/pid and
+structured log match an interactive `sensus daemon status|logs`), using the same
+self-exec argv as `daemon start` (`daemonSelfArgv`, so the compiled binary and dev
+agree). It restarts on failure (`Restart=on-failure` / `KeepAlive`) and points the
+service's stdout/stderr at `daemon.log` in the **state** dir
+(`daemonServiceLogPath`, `~/.local/state/sensus/logs/daemon.log`). The banner
+cannot live in the runtime dir: the service manager opens stdio before
+`ExecStart`, and the runtime dir is tmpfs (gone after a reboot), so the install
+creates the persistent log directory. `daemon start` still writes its own banner
+to `<runtimeDir>/daemon.log`.
 
 - `sensus daemon install` writes the unit and loads/enables it; idempotent, and
   `--dry-run` prints the unit (systemd INI / launchd plist) instead of writing.
+  On Linux it also verifies `systemctl --user is-enabled` after `enable --now`,
+  so a unit that was written but not enabled fails the install instead of looking
+  healthy until the next reboot, and warns when the enabled unit is not running
+  (the start job can finish just before the process exits).
 - `sensus daemon uninstall` unloads/disables it, removes the unit, and reloads
   the manager; idempotent when not installed, and `--dry-run` prints the plan.
+- It is a **user** unit: manage it with `systemctl --user`, never
+  `sudo systemctl` (the system manager cannot see it). On a headless host the
+  user manager only starts at boot when lingering is enabled; without it the
+  service starts at that user's first login (or not at all for a root account
+  reached through `su`).
+- On Linux, install also reads `loginctl show-user <user> -p Linger`. A systemd
+  **user** service is stopped at logout when lingering is off, so the installer
+  prints the exact `loginctl enable-linger <user>` command. `--linger` runs it for
+  you (it can require polkit/root authorization) and fails the install when the
+  command is refused. A headless server can keep the user service with lingering,
+  or manage a system unit manually; install never writes a system-wide unit.
 - A real write/manager failure is a clear non-zero exit; success names the unit
   path and points at `sensus daemon status`.
 
@@ -200,10 +220,13 @@ useful with no client attached ([`triggers.md`](triggers.md)).
 
 `sensus cloud pair` uses the same user unit when no daemon is running: it asks
 whether to install/enable the service for the user who ran the command. The
-pairing is saved first, so the daemon opens the tunnel on its next start. A root
-pairing warns that a root user service may need lingering (or a manually managed
-system unit); it is never installed silently. A paired, enabled tunnel pins the
-daemon (no idle exit) even if the service is not installed.
+pairing is saved first, so the daemon opens the tunnel on its next start. After
+a reload or install, pairing polls the daemon until the tunnel reports
+`connected: true` (20 s) and exits non-zero with `lastError` otherwise;
+`--no-wait` saves the pairing and returns immediately. A root pairing warns that
+a root user service may need lingering (or a manually managed system unit); it is
+never installed silently. A paired, enabled tunnel pins the daemon (no idle exit)
+even if the service is not installed.
 
 ## Setup wizard
 
@@ -586,11 +609,13 @@ most recent first) and continues one; the provider history rebuilds from the **l
 ### Structured daemon log
 
 The daemon writes a **structured NDJSON log** at `<runtimeDir>/daemon-log.jsonl`
-(`daemonLogJsonlPath`), distinct from `daemon.log` (which stays the detached process's raw
-stdio banner — `daemonLogPath`). It is configured at boot in `serve.ts` through
-`configureLogger` (see [`logging.md`](logging.md) for the envelope, redaction, correlation
-and rotation). Records carry the `component`, `instanceId` and (for REST requests) a
-`corrId`; the boot bearer token is redacted by literal value.
+(`daemonLogJsonlPath`), distinct from `daemon.log` (the raw stdio banner —
+`daemonLogPath` for `daemon start`, `daemonServiceLogPath` for the persistent
+service under `~/.local/state/sensus/logs/`). It is configured at boot in
+`serve.ts` through `configureLogger` (see [`logging.md`](logging.md) for the
+envelope, redaction, correlation and rotation). Records carry the `component`,
+`instanceId` and (for REST requests) a `corrId`; the boot bearer token is
+redacted by literal value.
 
 The log records **activity, not just lifecycle**: `session started`/`session ended`,
 `tool executed` (status, exit code, duration, a bounded target), `turn completed`
@@ -615,7 +640,8 @@ Read it with `sensus daemon logs` (not `daemon.log`):
 | `--follow`, `-f` | Keep printing appended records until Ctrl+C |
 
 `sensus daemon logs | jq` works (raw NDJSON). When the structured file is absent the CLI
-prints `(no daemon log yet — <path>)` and, if a raw `daemon.log` exists, points at it
+prints `(no daemon log yet — <path>)`; if a raw `daemon.log` exists — the detached
+banner in the runtime dir or the service banner in the state dir — it names that path
 explicitly rather than showing nothing.
 
 ## Exit & lifecycle

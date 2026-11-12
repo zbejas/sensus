@@ -135,6 +135,9 @@ export const infoSchema = t.Object(
     startedAt: t.Integer({ description: "Epoch ms the daemon process started." }),
     uptimeMs: t.Integer({ description: "Milliseconds since `startedAt`, sampled per request." }),
     socket: t.String({ description: "Unix socket path the API is bound to." }),
+    home: t.String({ description: "Config home (`SENSUS_HOME`) the daemon reads." }),
+    uid: t.Union([t.Integer(), t.Null()], { description: "Unix uid the daemon runs as; null on platforms without one." }),
+    unixUser: t.String({ description: "Human-readable Unix account matching `home`/`uid`." }),
     tcp: t.Object(
       { host: t.String(), port: t.Integer() },
       { description: "Loopback TCP address; `port` is the actual bound (ephemeral) port." },

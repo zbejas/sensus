@@ -2,9 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { runCloud } from "../../../src/daemon/cloud/cli"
+import { runCloud, type CloudDaemonStatus } from "../../../src/daemon/cloud/cli"
 import { readCloudConnection } from "../../../src/daemon/cloud/state"
-import type { DiscoveryResult } from "../../../src/daemon/cloud/discovery"
+import type { DaemonInfoPayload, DiscoveryResult } from "../../../src/daemon/cloud/discovery"
+import { SENSUS_VERSION } from "../../../src/version"
 
 const dirs: string[] = []
 
@@ -53,10 +54,40 @@ const running: DiscoveryResult = {
   discovery: {
     runtimeDir: "/tmp/runtime",
     token: "token",
-    info: { ok: true, tcp: { host: "127.0.0.1", port: 1234 }, version: "1.0.0" },
+    info: { ok: true, tcp: { host: "127.0.0.1", port: 1234 }, version: SENSUS_VERSION },
     wsUrl: "ws://127.0.0.1:1234/v1/ws",
     epoch: "inst:1",
   },
+}
+
+function runningWith(info: Partial<DaemonInfoPayload> = {}): DiscoveryResult {
+  return {
+    ok: true,
+    discovery: {
+      runtimeDir: "/tmp/runtime",
+      token: "token",
+      info: { ok: true, tcp: { host: "127.0.0.1", port: 1234 }, version: SENSUS_VERSION, ...info },
+      wsUrl: "ws://127.0.0.1:1234/v1/ws",
+      epoch: "inst:1",
+    },
+  }
+}
+
+/** A daemon whose tunnel is connected (the post-pair happy path). */
+function readyDaemon(home: string, over: Partial<CloudDaemonStatus> = {}): CloudDaemonStatus {
+  return {
+    running: true,
+    state: "ready",
+    connected: true,
+    lastError: null,
+    version: SENSUS_VERSION,
+    pid: 4242,
+    home,
+    unixUser: "tester",
+    uid: 1000,
+    probeError: null,
+    ...over,
+  }
 }
 
 function baseOpts(home: string, uid: number, over: Record<string, unknown> = {}) {
@@ -77,7 +108,7 @@ describe("sensus cloud pair", () => {
     const { io, out } = capture()
     const { fetchImpl } = fakeFetch()
     const code = await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--allow", "view,chat"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--allow", "view,chat", "--no-wait"],
       io,
       { HOME: home, SENSUS_HOME: home, USER: "tester" },
       baseOpts(home, 1000, { fetchImpl }),
@@ -105,7 +136,7 @@ describe("sensus cloud pair", () => {
     const { fetchImpl } = fakeFetch()
     const prompts: string[] = []
     const code = await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
       io,
       { HOME: home, SENSUS_HOME: home, USER: "tester" },
       baseOpts(home, 1000, {
@@ -134,7 +165,7 @@ describe("sensus cloud pair", () => {
     const { fetchImpl } = fakeFetch()
     const answers = ["root", "view,chat"]
     const code = await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
       io,
       { HOME: home, SENSUS_HOME: home, USER: "tester" },
       baseOpts(home, 1000, {
@@ -157,7 +188,7 @@ describe("sensus cloud pair", () => {
     const { io } = capture()
     const { fetchImpl } = fakeFetch()
     const code = await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
       io,
       { HOME: home, SENSUS_HOME: home, USER: "tester" },
       baseOpts(home, 1000, { fetchImpl }),
@@ -174,7 +205,7 @@ describe("sensus cloud pair", () => {
     const denied = capture()
     const { fetchImpl } = fakeFetch()
     const deniedCode = await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
       denied.io,
       { HOME: home, SENSUS_HOME: home, USER: "root" },
       baseOpts(home, 0, { fetchImpl }),
@@ -185,7 +216,7 @@ describe("sensus cloud pair", () => {
 
     const allowed = capture()
     const allowedCode = await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--allow-root"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--allow-root", "--no-wait"],
       allowed.io,
       { HOME: home, SENSUS_HOME: home, USER: "root" },
       baseOpts(home, 0, { fetchImpl }),
@@ -204,7 +235,7 @@ describe("sensus cloud pair", () => {
     const { io } = capture()
     const { fetchImpl } = fakeFetch()
     const code = await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
       io,
       { HOME: home, SENSUS_HOME: home, USER: "root" },
       baseOpts(home, 0, { fetchImpl, interactive: true, confirm: async () => false }),
@@ -227,6 +258,7 @@ describe("sensus cloud pair", () => {
         interactive: true,
         confirm: async () => true,
         promptText: async () => "view",
+        cloudStatus: async () => readyDaemon(home),
         install: async (input: { home: string; runtimeDir: string }) => {
           installs.push(input)
           return 0
@@ -237,6 +269,7 @@ describe("sensus cloud pair", () => {
     expect(out.join("\n")).toContain("no Sensus daemon is running for tester")
     expect(installs).toHaveLength(1)
     expect(out.join("\n")).toContain("installed and enabled")
+    expect(out.join("\n")).toContain("tunnel connected")
   })
 
   test("a running daemon is reloaded instead of prompting for a service", async () => {
@@ -251,6 +284,7 @@ describe("sensus cloud pair", () => {
       baseOpts(home, 1000, {
         fetchImpl,
         discover: async () => running,
+        cloudStatus: async () => readyDaemon(home),
         reload: async () => {
           reloads++
           return { ok: true }
@@ -260,6 +294,7 @@ describe("sensus cloud pair", () => {
     expect(code).toBe(0)
     expect(reloads).toBe(1)
     expect(out.join("\n")).toContain("daemon reloaded")
+    expect(out.join("\n")).toContain("tunnel connected")
   })
 
   test("the pair request advertises the embedded daemon and host user", async () => {
@@ -281,7 +316,7 @@ describe("sensus cloud pair", () => {
       })
     }
     const code = await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
       io,
       { HOME: home, SENSUS_HOME: home, USER: "alice" },
       baseOpts(home, 1000, { fetchImpl }),
@@ -303,7 +338,7 @@ describe("sensus cloud pair", () => {
     const { io } = capture()
     const { fetchImpl } = fakeFetch()
     await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--allow", "view"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--allow", "view", "--no-wait"],
       io,
       { HOME: home, SENSUS_HOME: home, USER: "tester" },
       baseOpts(home, 1000, { fetchImpl }),
@@ -337,12 +372,17 @@ describe("sensus cloud pair", () => {
     const home = tempHome()
     const unpaired = capture()
     expect(await runCloud(["status", "--json"], unpaired.io, { HOME: home, SENSUS_HOME: home }, baseOpts(home, 1000))).toBe(0)
-    expect(JSON.parse(unpaired.out.join("\n")).paired).toBe(false)
+    const unpairedJson = JSON.parse(unpaired.out.join("\n"))
+    expect(unpairedJson.paired).toBe(false)
+    expect(unpairedJson.daemon.state).toBe("stopped")
+    expect(unpairedJson.daemon.connected).toBe(false)
+    expect(unpairedJson.daemon.lastError).toBeNull()
+    expect(unpairedJson.daemon.probeError).toBeNull()
 
     const { io } = capture()
     const { fetchImpl } = fakeFetch()
     await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
       io,
       { HOME: home, SENSUS_HOME: home, USER: "tester" },
       baseOpts(home, 1000, { fetchImpl }),
@@ -360,7 +400,7 @@ describe("sensus cloud pair", () => {
     const { io } = capture()
     const { fetchImpl } = fakeFetch()
     await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
       io,
       { HOME: home, SENSUS_HOME: home, USER: "tester" },
       baseOpts(home, 1000, { fetchImpl }),
@@ -371,12 +411,155 @@ describe("sensus cloud pair", () => {
     expect(existsSync(join(home, "auth", "identity.json"))).toBe(true)
   })
 
+  test("status reports a daemon API failure instead of leaving the tunnel unknown", async () => {
+    const home = tempHome()
+    const { fetchImpl } = fakeFetch()
+    await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      capture().io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, { fetchImpl }),
+    )
+    const status = capture()
+    const code = await runCloud(
+      ["status", "--json"],
+      status.io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, {
+        cloudStatus: async () => ({
+          running: true,
+          state: "error",
+          connected: false,
+          lastError: "GET /v1/cloud/status returned HTTP 503",
+          version: SENSUS_VERSION,
+          pid: 4242,
+          home,
+          unixUser: "tester",
+          uid: 1000,
+          probeError: "GET /v1/cloud/status returned HTTP 503",
+        }),
+      }),
+    )
+    expect(code).toBe(1)
+    const parsed = JSON.parse(status.out.join("\n"))
+    expect(parsed.home).toBe(home)
+    expect(parsed.daemon.state).toBe("error")
+    expect(parsed.daemon.connected).toBe(false)
+    expect(parsed.daemon.lastError).toContain("HTTP 503")
+    expect(parsed.daemon.version).toBe(SENSUS_VERSION)
+    expect(parsed.daemon.probeError).toContain("HTTP 503")
+  })
+
+  test("status flags a daemon using another config home", async () => {
+    const home = tempHome()
+    const other = tempHome()
+    const { fetchImpl } = fakeFetch()
+    await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      capture().io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, { fetchImpl }),
+    )
+    const status = capture()
+    const code = await runCloud(
+      ["status", "--json"],
+      status.io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, { cloudStatus: async () => readyDaemon(other) }),
+    )
+    expect(code).toBe(1)
+    const parsed = JSON.parse(status.out.join("\n"))
+    expect(parsed.homeMismatch).toBe(true)
+    expect(parsed.daemon.home).toBe(other)
+  })
+
+  test("pair refuses a running daemon that reads another config home", async () => {
+    const home = tempHome()
+    const other = tempHome()
+    const { io, err } = capture()
+    const { fetchImpl } = fakeFetch()
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, { fetchImpl, discover: async () => runningWith({ home: other, uid: 1000 }) }),
+    )
+    expect(code).toBe(1)
+    expect(err.join("\n")).toContain("SENSUS_HOME")
+    expect(existsSync(join(home, "cloud", "connection.json"))).toBe(false)
+    expect(existsSync(join(home, "auth", "identity.json"))).toBe(false)
+  })
+
+  test("pair exits non-zero when the tunnel never connects", async () => {
+    const home = tempHome()
+    const { io, out, err } = capture()
+    const { fetchImpl } = fakeFetch()
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, {
+        fetchImpl,
+        discover: async () => runningWith({ home, uid: 1000 }),
+        reload: async () => ({ ok: true }),
+        waitTimeoutMs: 25,
+        waitPollMs: 1,
+        cloudStatus: async () =>
+          readyDaemon(home, {
+            connected: false,
+            state: "reconnecting",
+            lastError: "cloud tunnel upgrade failed: HTTP 403 text/html",
+          }),
+      }),
+    )
+    expect(code).toBe(1)
+    expect(out.join("\n")).toContain("pairing saved")
+    expect(err.join("\n")).toContain("HTTP 403")
+  })
+
+  test("doctor reports the pairing, tunnel and lingering state", async () => {
+    const home = tempHome()
+    const { fetchImpl } = fakeFetch()
+    await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      capture().io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, { fetchImpl }),
+    )
+    const doctor = capture()
+    const code = await runCloud(
+      ["doctor", "--json"],
+      doctor.io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, {
+        fetchImpl,
+        discover: async () => runningWith({ home, uid: 1000, unixUser: "tester" }),
+        cloudStatus: async () => readyDaemon(home),
+        linger: async ({ env }: { env: NodeJS.ProcessEnv }) => ({
+          applicable: true,
+          enabled: false,
+          user: env["USER"] ?? "tester",
+          enableCommand: "loginctl enable-linger tester",
+          detail: null,
+        }),
+      }),
+    )
+    expect(code).toBe(0)
+    const parsed = JSON.parse(doctor.out.join("\n"))
+    expect(parsed.ok).toBe(true)
+    const checks = parsed.checks as Array<{ id: string; status: string; message: string }>
+    expect(checks.find((check) => check.id === "pairing")?.status).toBe("ok")
+    expect(checks.find((check) => check.id === "tunnel")?.status).toBe("ok")
+    expect(checks.find((check) => check.id === "linger")?.status).toBe("warn")
+    expect(checks.find((check) => check.id === "linger")?.message).toContain("loginctl enable-linger")
+  })
+
   test("a 401 whoami discards the newly stored token", async () => {
     const home = tempHome()
     const { io } = capture()
     const { fetchImpl } = fakeFetch({ revoked: true })
     const code = await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
       io,
       { HOME: home, SENSUS_HOME: home, USER: "tester" },
       baseOpts(home, 1000, { fetchImpl }),

@@ -78,7 +78,7 @@ Usage:
   sensus --export <file>    print a session transcript as markdown
   sensus update             update to the latest release in place (alias: upgrade)
   sensus secrets <cmd>      manage the encrypted secrets store: list | set <NAME> <value> | rm <NAME> | migrate
-  sensus cloud <cmd>        pair this host with a Sensus Cloud panel: pair | status | enable | disable | unpair
+  sensus cloud <cmd>        pair this host with a Sensus Cloud panel: pair | status | doctor | enable | disable | unpair
   sensus daemon <cmd>       run/manage the local daemon (worker): serve | start | stop | status | logs | install | uninstall
   sensus kill               stop every running sensus daemon (the kill switch; --dry-run)
   sensus events tail        print the local event log (--follow, --type <t>, --since <ms|ISO>)

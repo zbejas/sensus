@@ -63,12 +63,14 @@ running. By default it exits once it has been idle for a while; if you want trig
 watching with no Sensus window open, install it as a persistent service:
 
 ```sh
-sensus daemon install     # user service; starts on login, no root
-sensus daemon uninstall   # remove it again
+sensus daemon install --linger  # user service; --linger starts it at boot on a headless host
+sensus daemon uninstall         # remove it again
 ```
 
 Both accept `--dry-run` to print what would happen. `sensus daemon status` shows whether the
-service is up.
+service is up. The service is a **user** service: manage it with `systemctl --user`, not
+`sudo systemctl`. Without lingering it starts only when that user logs in, so use `--linger`
+on a server.
 
 ## Good to know
 

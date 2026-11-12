@@ -26,6 +26,11 @@ export interface DaemonInfoPayload {
   platform?: string
   pid?: number
   startedAt?: number
+  /** Config home the daemon actually reads (`SENSUS_HOME`) — mismatch detection. */
+  home?: string
+  /** Unix uid the daemon runs as, when the platform has one. */
+  uid?: number
+  unixUser?: string
   tcp: { host: string; port: number }
   shells?: number
   persistent?: boolean
@@ -219,6 +224,9 @@ function parseInfo(body: string): DaemonInfoPayload | null {
     platform: typeof parsed["platform"] === "string" ? parsed["platform"] : undefined,
     pid: typeof parsed["pid"] === "number" ? parsed["pid"] : undefined,
     startedAt: typeof parsed["startedAt"] === "number" ? parsed["startedAt"] : undefined,
+    home: typeof parsed["home"] === "string" ? parsed["home"] : undefined,
+    uid: typeof parsed["uid"] === "number" && Number.isFinite(parsed["uid"]) ? parsed["uid"] : undefined,
+    unixUser: typeof parsed["unixUser"] === "string" ? parsed["unixUser"] : undefined,
     tcp: { host, port: Math.floor(tcp["port"]) },
     shells: typeof parsed["shells"] === "number" ? parsed["shells"] : undefined,
     persistent: typeof parsed["persistent"] === "boolean" ? parsed["persistent"] : undefined,

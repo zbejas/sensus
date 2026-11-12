@@ -77,6 +77,38 @@ socket; or an old service still holding your shells.
 `sensus kill` stops every sensus service this user runs, whatever started it (`--dry-run`
 lists first). Starting the service again unlinks a stale socket automatically.
 
+## The always-on service does not start after a reboot
+
+**Symptom:** `sensus daemon install` succeeded, but after a reboot `sensus daemon status`
+says not running, and `sudo systemctl enable sensus` reports that the unit does not exist.
+
+**Cause:** the always-on service is a systemd **user** service, not a system service.
+`sudo systemctl` looks in the system manager, where the unit is not installed. A user
+service also starts only with that user's user manager; on a headless machine nobody logs
+in, so without lingering it never starts. Running the install through `sudo su` makes this
+worse: the service belongs to root, and root's user manager is not started at boot unless
+lingering is enabled.
+
+**Fix:** install as the user who should run sensus (not root), and enable lingering so it
+starts at boot:
+
+```sh
+sensus daemon install --linger
+systemctl --user is-enabled sensus
+```
+
+The second command should print `enabled`. To repair an existing root install, do this as
+root:
+
+```sh
+loginctl enable-linger root
+sensus daemon install --linger
+```
+
+Then reboot and check `sensus daemon status`. If it still fails, `sensus daemon logs`
+points at the startup banner. Running the agent as root is supported for a single-user
+homelab, but not recommended on a shared host.
+
 ## After an update, the old version is still running
 
 **Symptom:** an update does not seem to take effect, or boot warns about a version mismatch.
@@ -85,6 +117,30 @@ lists first). Starting the service again unlinks a stale socket automatically.
 
 **Fix:** the boot prompt offers to restart it now (losing anything running in those shells)
 or to keep it for later; `sensus daemon restart` is the manual escape hatch.
+
+## The cloud panel shows the host as offline
+
+**Symptom:** the host appears in Fleet as paired but never connects; the panel says
+"never" for last seen.
+
+**Cause:** the local service is not running the pairing — often a stale service
+started before pairing or before an upgrade, a different user or configuration home,
+a user service that stopped at logout, or a proxy that forwards pairing but strips
+the WebSocket upgrade.
+
+**Fix:** run `sensus cloud doctor`; it checks the pairing, the local service, the
+tunnel error, the HTTPS token check, the WebSocket upgrade, and systemd lingering.
+Then:
+
+- `sensus daemon restart` if the doctor reports a version or configuration-home
+  mismatch (a reload cannot replace the running binary).
+- `loginctl enable-linger <user>` if lingering is disabled, so the user service
+  survives logout. `sensus daemon install --linger` can do it for you.
+- If the upgrade check reports a redirect or an HTML page, the reverse proxy must
+  forward `Upgrade`/`Connection` for `/api/connector`. When Cloudflare Access is in
+  front, bypass `/api/connector` itself, not only the pairing and token-check paths.
+
+The detailed daemon log is in `sensus daemon logs --component cloud`.
 
 ## The install fails
 

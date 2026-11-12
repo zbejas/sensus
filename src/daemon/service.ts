@@ -14,18 +14,20 @@
  * (`SENSUS_DAEMON_PERSISTENT=1`, D3/D9) with the same self-exec argv the
  * on-demand path uses (`daemonSelfArgv`, so the compiled binary and dev agree),
  * restarts on failure (`Restart=on-failure` / `KeepAlive`), and points at the
- * daemon log.
+ * daemon log. That banner lives in the persistent state dir, not the runtime
+ * dir: systemd/launchd open the file before the daemon runs, and the runtime
+ * dir is tmpfs, so it does not exist after a reboot.
  *
  * Both the unit path and the command runner are injectable, so tests never
  * touch the real `$HOME` and never invoke `systemctl`/`launchctl`.
  */
 
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
-import { homedir } from "node:os"
+import { homedir, userInfo } from "node:os"
 import { dirname, join } from "node:path"
 import { sensusRuntimeDirFrom } from "../engine/index.ts"
 import { errorMessage } from "../core/util.ts"
-import { daemonLogPath } from "./paths.ts"
+import { daemonServiceLogPath } from "./paths.ts"
 import { compiledEntry, daemonSelfArgv } from "./selfExec.ts"
 
 /** The service manager a platform uses for a user-scoped unit. */
@@ -85,6 +87,8 @@ export function renderSystemdUnit(spec: ServiceUnitSpec): string {
   const env = Object.entries(spec.env)
     .map(([k, v]) => `Environment=${systemdArg(`${k}=${v}`)}`)
     .join("\n")
+  // `%` is a systemd specifier in every value, not just argv/env.
+  const logPath = spec.logPath.replaceAll("%", "%%")
   return (
     [
       "[Unit]",
@@ -96,8 +100,8 @@ export function renderSystemdUnit(spec: ServiceUnitSpec): string {
       ...(env.length > 0 ? [env] : []),
       "Restart=on-failure",
       "RestartSec=2",
-      `StandardOutput=append:${spec.logPath}`,
-      `StandardError=append:${spec.logPath}`,
+      `StandardOutput=append:${logPath}`,
+      `StandardError=append:${logPath}`,
       "",
       "[Install]",
       "WantedBy=default.target",
@@ -187,6 +191,76 @@ export const realRunner: CommandRunner = {
   },
 }
 
+// ---- lingering (systemd user services) --------------------------------------
+
+/** The account a user service belongs to (`$USER`, else the passwd entry). */
+export function serviceUserName(env: NodeJS.ProcessEnv, explicit?: string): string {
+  if (explicit !== undefined && explicit.length > 0) return explicit
+  const fromEnv = env["USER"] ?? env["LOGNAME"]
+  if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv
+  try {
+    return userInfo().username
+  } catch {
+    return "unknown"
+  }
+}
+
+/** The installing account's uid, or null when the platform has no `getuid`. */
+function serviceUid(): number | null {
+  try {
+    return typeof process.getuid === "function" ? process.getuid() : null
+  } catch {
+    return null
+  }
+}
+
+export interface LingerStatus {
+  /** False off Linux/systemd; every other field is then informational. */
+  applicable: boolean
+  /** `true`/`false` from `loginctl`; null when it cannot be determined. */
+  enabled: boolean | null
+  user: string
+  /** The exact command that keeps the user service alive after logout. */
+  enableCommand: string | null
+  detail: string | null
+}
+
+/**
+ * Read `Linger` for the service account. A systemd **user** service is stopped
+ * at logout unless lingering is enabled, which is the most common reason a
+ * paired host reconnects only while the user is logged in (docs/auth.md).
+ */
+export async function checkUserLinger(opts: {
+  env: NodeJS.ProcessEnv
+  platform?: NodeJS.Platform
+  runner?: CommandRunner
+  user?: string
+}): Promise<LingerStatus> {
+  const platform = opts.platform ?? process.platform
+  const user = serviceUserName(opts.env, opts.user)
+  if (platform !== "linux") {
+    return { applicable: false, enabled: null, user, enableCommand: null, detail: `not systemd (${platform})` }
+  }
+  const runner = opts.runner ?? realRunner
+  const command = ["loginctl", "show-user", user, "-p", "Linger"]
+  const res = await runner.run(command)
+  const enableCommand = `loginctl enable-linger ${user}`
+  if (!res.ok) {
+    return {
+      applicable: true,
+      enabled: null,
+      user,
+      enableCommand,
+      detail: res.stderr.trim() || res.stdout.trim() || `\`${command.join(" ")}\` failed`,
+    }
+  }
+  const match = /(?:^|\n)Linger=(yes|no)\b/u.exec(res.stdout)
+  if (match === null) {
+    return { applicable: true, enabled: null, user, enableCommand, detail: "loginctl returned no Linger value" }
+  }
+  return { applicable: true, enabled: match[1] === "yes", user, enableCommand, detail: null }
+}
+
 // ---- install / uninstall ----------------------------------------------------
 
 export interface ServiceIo {
@@ -214,6 +288,10 @@ export interface ServiceCommandOptions {
   runtimeDir?: string
   /** Pin `SENSUS_HOME` in the unit (pairing with a non-default config home). */
   sensusHome?: string
+  /** Override the service account used for the lingering check (tests). */
+  user?: string
+  /** Override the installing account's uid (tests); 0 means root. */
+  uid?: number
   /** Override the command runner (tests) — the real one runs systemctl/launchctl. */
   runner?: CommandRunner
 }
@@ -224,6 +302,11 @@ interface ServiceContext {
   spec: ServiceUnitSpec
   runner: CommandRunner
   dryRun: boolean
+  /** Run `loginctl enable-linger` instead of only reporting it. */
+  linger: boolean
+  user: string
+  /** Installing account's uid; 0 is root. */
+  uid: number | null
 }
 
 type ServiceContextResult = ({ ok: true } & ServiceContext) | { ok: false; error: string }
@@ -236,7 +319,14 @@ function resolveServiceContext(opts: ServiceCommandOptions): ServiceContextResul
   const home = opts.home ?? opts.env["HOME"] ?? homedir()
   const unitPath = opts.unitDir !== undefined ? join(opts.unitDir, serviceUnitFileName(kind)) : serviceUnitPath(kind, home)
   const runtimeDir = opts.runtimeDir ?? sensusRuntimeDirFrom(opts.env)
-  const logPath = opts.logPath ?? daemonLogPath(runtimeDir)
+  const serviceEnv: Record<string, string> = {
+    SENSUS_DAEMON_PERSISTENT: "1",
+    SENSUS_RUNTIME_DIR: runtimeDir,
+    ...(opts.sensusHome !== undefined && opts.sensusHome.length > 0 ? { SENSUS_HOME: opts.sensusHome } : {}),
+  }
+  // The banner lives in the state dir (see daemonServiceLogPath). Resolve it
+  // against the unit's env, so a pinned SENSUS_HOME matches `sensus daemon logs`.
+  const logPath = opts.logPath ?? daemonServiceLogPath({ ...opts.env, ...serviceEnv })
   const selfArgv = opts.selfArgv ?? daemonSelfArgv(process.execPath, Bun.main, compiledEntry())
   return {
     ok: true,
@@ -246,16 +336,15 @@ function resolveServiceContext(opts: ServiceCommandOptions): ServiceContextResul
       argv: [...selfArgv, "daemon", "serve"],
       // Pin the runtime dir so the socket/pid/log the service uses match what an
       // interactive `sensus daemon status|logs` resolves from the same env.
-      env: {
-        SENSUS_DAEMON_PERSISTENT: "1",
-        SENSUS_RUNTIME_DIR: runtimeDir,
-        ...(opts.sensusHome !== undefined && opts.sensusHome.length > 0 ? { SENSUS_HOME: opts.sensusHome } : {}),
-      },
+      env: serviceEnv,
       logPath,
       label: kind === "systemd" ? SYSTEMD_UNIT_NAME : LAUNCHD_LABEL,
     },
     runner: opts.runner ?? realRunner,
     dryRun: (opts.argv ?? []).includes("--dry-run"),
+    linger: (opts.argv ?? []).includes("--linger"),
+    user: serviceUserName(opts.env, opts.user),
+    uid: opts.uid ?? serviceUid(),
   }
 }
 
@@ -271,6 +360,10 @@ function enableCommands(kind: ServiceUnitKind, unitPath: string): ServiceCommand
     ? [
         { argv: ["systemctl", "--user", "daemon-reload"] },
         { argv: ["systemctl", "--user", "enable", "--now", SYSTEMD_UNIT_NAME] },
+        // `enable --now` can print success while the start job is only queued;
+        // verify the symlink is really in place so a boot without the service
+        // fails the install instead of looking healthy until reboot.
+        { argv: ["systemctl", "--user", "is-enabled", SYSTEMD_UNIT_NAME] },
       ]
     : [
         // A repeat install must not fail on an already-loaded agent: unload
@@ -319,7 +412,24 @@ export async function installService(opts: ServiceCommandOptions): Promise<numbe
   if (ctx.dryRun) {
     opts.io.out(`# ${ctx.kind} unit (dry run — not written): ${ctx.unitPath}`)
     opts.io.out(content.replace(/\n$/, ""))
+    if (ctx.kind === "systemd") {
+      opts.io.out(
+        ctx.linger
+          ? `# would run: loginctl enable-linger ${ctx.user}`
+          : `# lingering: check with \`loginctl show-user ${ctx.user} -p Linger\` (add --linger to enable)`,
+      )
+    }
     return 0
+  }
+  try {
+    // The service manager opens StandardOutput before ExecStart, and the
+    // runtime dir is tmpfs (gone after a reboot). The banner therefore lives in
+    // the persistent state dir, whose parent must exist at boot.
+    mkdirSync(dirname(ctx.spec.logPath), { recursive: true, mode: 0o700 })
+    chmodSync(dirname(ctx.spec.logPath), 0o700)
+  } catch (e) {
+    opts.io.err(`sensus daemon install: cannot create log directory ${dirname(ctx.spec.logPath)}: ${errorMessage(e)}`)
+    return 1
   }
   try {
     mkdirSync(dirname(ctx.unitPath), { recursive: true })
@@ -332,7 +442,56 @@ export async function installService(opts: ServiceCommandOptions): Promise<numbe
   if (!(await runCommands(opts.io, ctx.runner, enableCommands(ctx.kind, ctx.unitPath)))) return 1
   opts.io.out(`sensus daemon: installed ${ctx.kind === "systemd" ? "systemd user unit" : "launchd user agent"} → ${ctx.unitPath}`)
   opts.io.out(`sensus daemon: persistent mode (SENSUS_DAEMON_PERSISTENT=1); log ${ctx.spec.logPath}`)
-  opts.io.out("sensus daemon: the service starts on login — check it with `sensus daemon status`")
+  let lingerEnabled: boolean | null = null
+  if (ctx.kind === "systemd") {
+    if (ctx.linger) {
+      const linger = await ctx.runner.run(["loginctl", "enable-linger", ctx.user])
+      if (!linger.ok) {
+        const detail = linger.stderr.trim() || linger.stdout.trim()
+        opts.io.err(
+          `sensus daemon: \`loginctl enable-linger ${ctx.user}\` failed${detail.length > 0 ? ` — ${detail}` : ""}`,
+        )
+        return 1
+      }
+      lingerEnabled = true
+      opts.io.out(`sensus daemon: lingering enabled for ${ctx.user}`)
+    } else {
+      const status = await checkUserLinger({
+        env: opts.env,
+        platform: opts.platform,
+        runner: ctx.runner,
+        user: ctx.user,
+      })
+      lingerEnabled = status.enabled
+      if (status.enabled === false) {
+        opts.io.err("sensus daemon: warning: a systemd user service stops at logout unless lingering is enabled.")
+        opts.io.err(`sensus daemon: run \`${status.enableCommand}\` (or \`sensus daemon install --linger\`) to keep it running.`)
+        opts.io.err("sensus daemon: on a headless server, use lingering or manage a system unit yourself; install never writes a system-wide unit.")
+      } else if (status.enabled === true) {
+        opts.io.out(`sensus daemon: lingering is enabled for ${ctx.user}`)
+      }
+      // Unknown (no loginctl, containers): stay quiet; the service still works
+      // for the current login session.
+    }
+    if (ctx.uid === 0 && lingerEnabled !== true) {
+      opts.io.err("sensus daemon: warning: root's user service does not start at boot without lingering.")
+      opts.io.err(`sensus daemon: run \`sensus daemon install --linger\` (or \`loginctl enable-linger ${ctx.user}\`) so root does not need to log in.`)
+    }
+    // Enabled is not the same as running: `enable --now` can finish its start
+    // job and the process can still exit before the next `daemon status`.
+    const active = await ctx.runner.run(["systemctl", "--user", "is-active", SYSTEMD_UNIT_NAME])
+    if (!active.ok) {
+      const state = active.stdout.trim() || active.stderr.trim() || "not active"
+      opts.io.err(`sensus daemon: warning: the unit is enabled but not running (${state}); see ${ctx.spec.logPath}`)
+    }
+  }
+  if (ctx.kind === "systemd" && lingerEnabled === false) {
+    opts.io.out(`sensus daemon: the service starts when ${ctx.user} logs in; enable lingering to start it at boot`)
+  } else if (ctx.kind === "systemd" && lingerEnabled === true) {
+    opts.io.out("sensus daemon: the service starts at boot (lingering is enabled) — check it with `sensus daemon status`")
+  } else {
+    opts.io.out("sensus daemon: the service starts at login — check it with `sensus daemon status`")
+  }
   return 0
 }
 

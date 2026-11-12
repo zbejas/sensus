@@ -148,6 +148,7 @@ class EmbeddedCloudClient implements CloudClient {
       connectorVersion: this.opts.version,
       host: hostFacts({ uid: read.connection.uid, env: this.env, unixUser: read.connection.unixUser }),
       preflight: true,
+      probeUpgrade: true,
       onLog: (level, message) => this.report(level, message),
       onStateChange: (state) => {
         this.tunnelState = state

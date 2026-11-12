@@ -8,10 +8,16 @@
  */
 
 import { describe, expect, test } from "bun:test"
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { daemonLogJsonlPath, daemonLogPath, runDaemon, type DaemonIo } from "../../../src/daemon/index.ts"
+import { dirname, join } from "node:path"
+import {
+  daemonLogJsonlPath,
+  daemonLogPath,
+  daemonServiceLogPath,
+  runDaemon,
+  type DaemonIo,
+} from "../../../src/daemon/index.ts"
 
 interface Capture {
   out: string[]
@@ -28,7 +34,7 @@ function captureIo(): Capture {
 /** A hermetic runtime dir + the env the CLI resolves it from. */
 function withRuntimeDir(fn: (info: { dir: string; env: Record<string, string>; write: (text: string) => void }) => Promise<void>): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), "sensus-daemon-logs-"))
-  const env: Record<string, string> = { SENSUS_RUNTIME_DIR: dir }
+  const env: Record<string, string> = { SENSUS_RUNTIME_DIR: dir, HOME: dir }
   const write = (text: string): void => writeFileSync(daemonLogJsonlPath(dir), text)
   return fn({ dir, env, write }).finally(() => rmSync(dir, { recursive: true, force: true }))
 }
@@ -226,6 +232,17 @@ describe("sensus daemon logs: missing files", () => {
       expect(text).toContain(daemonLogJsonlPath(dir))
       expect(text).toContain(daemonLogPath(dir))
       expect(text).toContain("raw stdio banner")
+    })
+  })
+
+  test("a missing structured log also points at the persistent service banner", async () => {
+    await withRuntimeDir(async ({ env }) => {
+      const serviceLog = daemonServiceLogPath(env)
+      mkdirSync(dirname(serviceLog), { recursive: true })
+      writeFileSync(serviceLog, "service startup failed\n")
+      const { io, out } = captureIo()
+      expect(await runDaemon(["logs"], io, env)).toBe(0)
+      expect(out.join("\n")).toContain(serviceLog)
     })
   })
 })

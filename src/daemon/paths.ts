@@ -8,7 +8,7 @@
  */
 
 import { join } from "node:path"
-import { sensusRuntimeDir } from "../engine/index.ts"
+import { sensusRuntimeDir, sensusStateDirFrom } from "../engine/index.ts"
 
 /** Runtime dir the daemon owns (`0700`). */
 export function daemonRuntimeDir(): string {
@@ -33,6 +33,17 @@ export function daemonPidPath(dir: string = daemonRuntimeDir()): string {
 /** Log file the detached `start` process writes stdout/stderr to. */
 export function daemonLogPath(dir: string = daemonRuntimeDir()): string {
   return join(dir, "daemon.log")
+}
+
+/**
+ * Raw stdio banner for the persistent **service** (systemd/launchd). Unlike
+ * `daemonLogPath`, it cannot live in the runtime dir: the service manager opens
+ * stdout before the daemon runs, and the runtime dir lives on tmpfs, so it does
+ * not exist yet after a reboot. Keep this in the persistent state dir and create
+ * the parent at install time.
+ */
+export function daemonServiceLogPath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(sensusStateDirFrom(env), "logs", "daemon.log")
 }
 
 /**

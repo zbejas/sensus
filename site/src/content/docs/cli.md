@@ -78,6 +78,7 @@ the machine you want to reach, as the user whose service should be controlled:
 ```sh
 sensus cloud pair --cloud https://cloud.example
 sensus cloud status
+sensus cloud doctor              # diagnose pairing, service, tunnel and proxy
 sensus cloud scopes              # show the host-granted scopes
 sensus cloud scopes --allow view,chat
 sensus cloud disable             # keep the pairing, stop the connection
@@ -87,9 +88,24 @@ sensus cloud unpair
 
 The command asks for the code without echoing it. If no local service is running, it offers
 to install and enable one for that user. The host connects outbound to the panel; no inbound
-port is opened. Running as root is refused unless you explicitly approve it, and the panel
-marks such an instance as root. Multiple users on one machine can each pair their own
-service; the panel shows them as separate instances.
+port is opened. Pairing waits for the connection to come up and reports a non-zero exit with
+the real error if it does not; `--no-wait` saves the pairing and returns immediately. Running
+as root is refused unless you explicitly approve it, and the panel marks such an instance as
+root. Multiple users on one machine can each pair their own service; the panel shows them as
+separate instances.
+
+`sensus cloud status` exits non-zero when the local service cannot answer or is running for a
+different user or configuration home, so a stale service does not look like a healthy pairing.
+`sensus cloud doctor` separates the remaining causes — missing or mismatched identity, a
+pending or revoked token, a tunnel error, a reversed proxy that strips the WebSocket upgrade,
+and a user service that stops at logout. Add `--json` for machine-readable checks.
+
+On Linux, the always-on service is a user service. Manage it with `systemctl --user`,
+not `sudo systemctl` — the system manager cannot see a user unit. The service starts
+when that user's user manager starts; on a headless machine nobody logs in, so add
+`--linger` to `sensus daemon install` (or run `loginctl enable-linger <user>`) to start
+it at boot. If `loginctl show-user <user> -p Linger` reports `Linger=no`, install prints
+the exact command; `--linger` runs it for you.
 
 On Linux, the always-on service is a user service. Manage it with `systemctl --user`,
 not `sudo systemctl` — the system manager cannot see a user unit. The service starts

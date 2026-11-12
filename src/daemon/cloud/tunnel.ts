@@ -28,6 +28,7 @@ import {
 } from "./protocol.ts"
 import { connectorUrl } from "./state.ts"
 import { whoami, type FetchLike, type WhoamiResult } from "./pairing.ts"
+import { probeConnectorUpgrade } from "./probe.ts"
 
 /** The broker surface the tunnel drives (tests substitute a fake). */
 export interface TunnelBrokerLike {
@@ -118,6 +119,12 @@ export interface CloudTunnelOptions {
   fetchImpl?: FetchLike
   /** Preflight `whoami` before each socket (off in tests/fake clouds). */
   preflight?: boolean
+  /**
+   * Probe `/api/connector` over HTTPS when a socket closes before its upgrade
+   * completes, and log the HTTP answer (401/403/3xx/HTML). Off by default so
+   * unit tests never reach the network; the daemon enables it.
+   */
+  probeUpgrade?: boolean
   now?: () => number
   random?: () => number
   reconnectBaseMs?: number
@@ -152,6 +159,10 @@ export class CloudTunnel {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectAttempt = 0
   private stopped = false
+  /** True once the current socket reached its `open` event. */
+  private opened = false
+  /** Invalidates a late upgrade probe when a newer socket is ready/stopped. */
+  private probeSeq = 0
   private serverMaxFrameBytes: number
   private serverMaxStreams: number
   private readyInfo: { connectionId: string; heartbeatMs: number; maxFrameBytes: number; maxStreams: number } | null = null
@@ -253,8 +264,10 @@ export class CloudTunnel {
     }
     this.socket = socket
     this.phase = "challenge"
+    this.opened = false
     socket.addEventListener("open", () => {
       if (this.socket !== socket) return
+      this.opened = true
       this.lastInbound = this.now()
       this.setState("handshaking")
       this.handshakeTimer = setTimeout(() => {
@@ -471,6 +484,7 @@ export class CloudTunnel {
   }
 
   private async onSocketClosed(code: number, reason: string): Promise<void> {
+    const failedUpgrade = !this.opened
     this.socket = null
     this.clearTimers()
     this.readyInfo = null
@@ -480,6 +494,7 @@ export class CloudTunnel {
     // cleanup so a fast reconnect cannot race a new control client.
     await this.opts.broker.closeAll("tunnel_closed")
     if (this.stopped) return
+    if (failedUpgrade && this.opts.probeUpgrade === true) this.probeUpgradeFailure()
     if (code === 4401) {
       this.stopBecause("unauthorized")
       return
@@ -496,6 +511,30 @@ export class CloudTunnel {
       this.report("info", `cloud connection closed: ${code} ${reason}`)
     }
     this.scheduleReconnect()
+  }
+
+  /**
+   * Best-effort: ask the same endpoint (over HTTPS) why the upgrade failed and
+   * surface the HTTP status/content type instead of Bun's opaque error. Runs in
+   * the background so a hanging proxy never delays the reconnect.
+   */
+  private probeUpgradeFailure(): void {
+    const seq = ++this.probeSeq
+    void probeConnectorUpgrade({
+      cloud: this.opts.cloudUrl,
+      deviceToken: this.opts.deviceToken,
+      instanceId: this.opts.instanceId,
+      ...(this.opts.fetchImpl !== undefined ? { fetchImpl: this.opts.fetchImpl } : {}),
+      timeoutMs: 5000,
+    })
+      .then((result) => {
+        if (this.stopped || seq !== this.probeSeq || this.stateValue === "ready") return
+        this.report("warn", `cloud tunnel upgrade failed: ${result.detail}`)
+      })
+      .catch((e: unknown) => {
+        if (this.stopped || seq !== this.probeSeq || this.stateValue === "ready") return
+        this.report("warn", `cloud tunnel upgrade probe failed: ${errorMessage(e)}`)
+      })
   }
 
   private scheduleReconnect(): void {
@@ -639,6 +678,8 @@ export class CloudTunnel {
   private setState(state: TunnelState): void {
     if (this.stateValue === state) return
     this.stateValue = state
+    // A fresh ready connection invalidates any in-flight failure probe.
+    if (state === "ready") this.probeSeq += 1
     try {
       this.opts.onStateChange?.(state)
     } catch {

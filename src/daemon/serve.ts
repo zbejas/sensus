@@ -44,6 +44,7 @@ import { createTriggerSink, TriggerEngine, type TriggerRecord } from "./triggers
 import { DaemonLifecycle, resolveApprovalTimeoutMs, resolvePersistent, resolveReattachMaxAgeMs } from "./lifecycle.ts"
 import { ensureRuntimeDir, generateToken, writeToken } from "./token.ts"
 import { createCloudClient, type CloudClient } from "./cloud/client.ts"
+import { unixUserLabel } from "./cloud/state.ts"
 import { safeUid } from "../auth/paths.ts"
 import type { PtySession, PtySessionOptions } from "../engine/index.ts"
 
@@ -289,6 +290,9 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
     startedAt,
     uptimeMs: Date.now() - startedAt,
     socket: socketPath,
+    home: homeDir,
+    uid: process.getuid?.() ?? null,
+    unixUser: unixUserLabel(process.getuid?.(), process.env),
     tcp: { host: tcpServer?.hostname ?? host, port: tcpServer?.port ?? requestedPort },
     /** Live PTY shells the daemon owns (D4/D21). */
     shells: registry.list().length,

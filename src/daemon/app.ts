@@ -49,6 +49,12 @@ export interface DaemonInfo {
   uptimeMs: number
   /** Unix socket path the API is bound to. */
   socket: string
+  /** Config home (`SENSUS_HOME`) the daemon actually reads. */
+  home: string
+  /** Unix uid the daemon runs as; null on platforms without one. */
+  uid: number | null
+  /** Human-readable Unix account, matching `home`/`uid`. */
+  unixUser: string
   /** Loopback TCP address; `port` is the actual bound (ephemeral) port. */
   tcp: { host: string; port: number }
   /** Live PTY shells the daemon currently owns (D4/D21). */

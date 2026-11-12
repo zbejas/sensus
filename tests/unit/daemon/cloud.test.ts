@@ -23,6 +23,9 @@ function makeInfo(): DaemonInfo {
     startedAt: 1_000_000,
     uptimeMs: 1234,
     socket: "/run/user/1000/sensus-1000/daemon.sock",
+    home: "/home/tester/.config/sensus",
+    uid: 1000,
+    unixUser: "tester",
     tcp: { host: "127.0.0.1", port: 54321 },
     shells: 0,
     persistent: false,
@@ -111,6 +114,61 @@ function fakeBroker(): TunnelBrokerLike {
     daemonFacts: async () => ({ state: "running" }),
   }
 }
+
+/** A WebSocket that fails its upgrade before firing `open`. */
+class FailedUpgradeSocket {
+  bufferedAmount = 0
+  private readonly listeners = new Map<string, Set<(event: unknown) => void>>()
+
+  constructor() {
+    queueMicrotask(() => {
+      for (const listener of this.listeners.get("error") ?? []) listener({})
+      for (const listener of this.listeners.get("close") ?? []) listener({ code: 1006, reason: "" })
+    })
+  }
+
+  addEventListener(type: string, listener: (event: unknown) => void): void {
+    const set = this.listeners.get(type) ?? new Set()
+    set.add(listener)
+    this.listeners.set(type, set)
+  }
+
+  close(): void {}
+  send(): void {}
+}
+
+describe("cloud tunnel upgrade diagnostics", () => {
+  test("a failed upgrade reports the HTTP status from the probe", async () => {
+    const logs: string[] = []
+    const tunnel = new CloudTunnel({
+      cloudUrl: "https://cloud.example",
+      instanceId: "inst_1",
+      deviceToken: "token",
+      identity: generateIdentity(),
+      policy: defaultPolicy(),
+      broker: fakeBroker(),
+      connectorVersion: "9.9.9",
+      host: { hostname: "box", platform: "linux", arch: "x64" },
+      WebSocketImpl: FailedUpgradeSocket as unknown as typeof WebSocket,
+      fetchImpl: async () =>
+        new Response("<html>Forbidden</html>", {
+          status: 403,
+          headers: { "content-type": "text/html" },
+        }),
+      probeUpgrade: true,
+      reconnectBaseMs: 60_000,
+      reconnectMaxMs: 60_000,
+      onLog: (level, message) => {
+        if (level === "warn") logs.push(message)
+      },
+    })
+    tunnel.start()
+    await Bun.sleep(20)
+    expect(tunnel.state).toBe("reconnecting")
+    expect(logs.join("\n")).toContain("cloud tunnel upgrade failed: HTTP 403 text/html")
+    await tunnel.stop()
+  })
+})
 
 describe("cloud tunnel preflight", () => {
   test("a revoked/unauthorized whoami stops instead of reconnecting forever", async () => {

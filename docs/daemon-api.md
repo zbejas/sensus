@@ -140,7 +140,7 @@ Scalar reference above.
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/v1/health` | `{ ok, name: "sensus-daemon", version }` — cheap liveness; the readiness probe `start` waits on |
-| GET | `/v1/info` | Daemon facts: `pid`, `platform`, `startedAt`, `uptimeMs`, `socket`, `tcp {host,port}`, `shells`, `persistent`, `instance { instanceId, createdAt, version }` |
+| GET | `/v1/info` | Daemon facts: `pid`, `platform`, `startedAt`, `uptimeMs`, `socket`, `home`, `uid`, `unixUser`, `tcp {host,port}`, `shells`, `persistent`, `instance { instanceId, createdAt, version }` |
 | GET | `/v1/config` | `{ ok, config }` — the **effective, redacted** config (D13) |
 | PUT | `/v1/config` | `{ ok, config, captured[], backupCreated }` — apply a validated config patch (P4c-ii); `?mode=replace` replaces the whole document |
 | GET | `/v1/config/raw` | `{ ok, raw }` — the UNREDACTED raw `config.json` for the settings editor |

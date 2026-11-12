@@ -118,6 +118,30 @@ homelab, but not recommended on a shared host.
 **Fix:** the boot prompt offers to restart it now (losing anything running in those shells)
 or to keep it for later; `sensus daemon restart` is the manual escape hatch.
 
+## The cloud panel shows the host as offline
+
+**Symptom:** the host appears in Fleet as paired but never connects; the panel says
+"never" for last seen.
+
+**Cause:** the local service is not running the pairing — often a stale service
+started before pairing or before an upgrade, a different user or configuration home,
+a user service that stopped at logout, or a proxy that forwards pairing but strips
+the WebSocket upgrade.
+
+**Fix:** run `sensus cloud doctor`; it checks the pairing, the local service, the
+tunnel error, the HTTPS token check, the WebSocket upgrade, and systemd lingering.
+Then:
+
+- `sensus daemon restart` if the doctor reports a version or configuration-home
+  mismatch (a reload cannot replace the running binary).
+- `loginctl enable-linger <user>` if lingering is disabled, so the user service
+  survives logout. `sensus daemon install --linger` can do it for you.
+- If the upgrade check reports a redirect or an HTML page, the reverse proxy must
+  forward `Upgrade`/`Connection` for `/api/connector`. When Cloudflare Access is in
+  front, bypass `/api/connector` itself, not only the pairing and token-check paths.
+
+The detailed daemon log is in `sensus daemon logs --component cloud`.
+
 ## The install fails
 
 - **Checksum mismatch:** the download was corrupted or tampered with; the installer refuses

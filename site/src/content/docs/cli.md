@@ -107,6 +107,13 @@ when that user's user manager starts; on a headless machine nobody logs in, so a
 it at boot. If `loginctl show-user <user> -p Linger` reports `Linger=no`, install prints
 the exact command; `--linger` runs it for you.
 
+On Linux, the always-on service is a user service. Manage it with `systemctl --user`,
+not `sudo systemctl` — the system manager cannot see a user unit. The service starts
+when that user's user manager starts; on a headless machine nobody logs in, so add
+`--linger` to `sensus daemon install` (or run `loginctl enable-linger <user>`) to start
+it at boot. If `loginctl show-user <user> -p Linger` reports `Linger=no`, install prints
+the exact command; `--linger` runs it for you.
+
 Without an explicit `--allow` list, pairing explains and lists the four scopes — `view`,
 `chat`, `control`, and `orchestrator` — and asks which to grant. Pressing Enter grants
 `view,chat,control`; type a narrower list such as `view,chat` if you do not want terminal

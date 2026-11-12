@@ -255,7 +255,7 @@ Sensus checks for a newer release once a day when it starts and shows a short no
 
 ## Background service
 
-The local worker that owns your shells runs on demand: it exits after a grace period when no window is attached and no terminal pane is alive, taking its shells with it. Set `daemonPersistent` to `true` to keep it running (that is what lets triggers act with no sensus window open), and `sensus daemon install` registers it as a user service that starts automatically. `sensus kill` stops every local worker and the shells they own. A paired cloud keeps the worker alive too, so the panel can reconnect. See [CLI](/docs/cli/) and [Triggers](/docs/triggers/).
+The local worker that owns your shells runs on demand: it exits after a grace period when no window is attached and no terminal pane is alive, taking its shells with it. Set `daemonPersistent` to `true` to keep it running (that is what lets triggers act with no sensus window open), and `sensus daemon install` registers it as a user service that starts automatically. On a headless Linux host add `--linger` so it starts at boot without a login. `sensus kill` stops every local worker and the shells they own. A paired cloud keeps the worker alive too, so the panel can reconnect. See [CLI](/docs/cli/) and [Triggers](/docs/triggers/).
 
 ## Extensions
 

@@ -8,11 +8,12 @@
 import { describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, dirname } from "node:path"
 import {
   LAUNCHD_LABEL,
   LAUNCHD_PLIST_NAME,
   SYSTEMD_UNIT_NAME,
+  daemonServiceLogPath,
   installService,
   renderLaunchdPlist,
   renderServiceUnit,
@@ -102,11 +103,12 @@ describe("service units: rendering", () => {
     const unit = renderSystemdUnit({
       ...SPEC,
       argv: ['/home/a b/sensus', "daemon", "serve"],
-      logPath: "/home/a b/daemon.log",
+      logPath: "/home/a b/daemon%20.log",
       env: { SENSUS_RUNTIME_DIR: "/run/user/100%0/sensus" },
     })
     expect(unit).toContain('ExecStart="/home/a b/sensus" "daemon" "serve"')
     expect(unit).toContain('Environment="SENSUS_RUNTIME_DIR=/run/user/100%%0/sensus"')
+    expect(unit).toContain("StandardOutput=append:/home/a b/daemon%%20.log")
   })
 
   test("launchd plist: label, argv, env, KeepAlive and the log path", () => {
@@ -140,21 +142,39 @@ describe("service units: rendering", () => {
   })
 })
 
+/** A runner that answers the lingering query with `Linger=yes|no`. */
+function lingerRunner(value: "yes" | "no"): Recorder {
+  const calls: string[][] = []
+  return {
+    calls,
+    failAt: -1,
+    async run(argv: readonly string[]): Promise<CommandResult> {
+      calls.push([...argv])
+      if (argv[0] === "loginctl" && argv[1] === "show-user") {
+        return { ok: true, code: 0, stdout: `Linger=${value}\n`, stderr: "" }
+      }
+      return { ok: true, code: 0, stdout: "", stderr: "" }
+    },
+  }
+}
+
 describe("sensus daemon install / uninstall", () => {
   test("install writes the systemd unit and runs daemon-reload + enable --now", async () => {
     const { home, cleanup } = tempHome()
     try {
       const unitDir = join(home, "units")
+      const logPath = join(home, "state", "logs", "daemon.log")
       const runner = recorder()
       const { out, err, io } = captureIo()
       const code = await installService({
         io,
-        env: { HOME: home },
+        env: { HOME: home, USER: "tester" },
         platform: "linux",
         unitDir,
         selfArgv: ["/opt/sensus"],
         runtimeDir: "/run/user/42/sensus-42",
-        logPath: "/run/user/42/sensus-42/daemon.log",
+        logPath,
+        uid: 1000,
         runner,
       })
       expect(code).toBe(0)
@@ -163,12 +183,68 @@ describe("sensus daemon install / uninstall", () => {
       const unit = readFileSync(file, "utf8")
       expect(unit).toContain('ExecStart="/opt/sensus" "daemon" "serve"')
       expect(unit).toContain('Environment="SENSUS_DAEMON_PERSISTENT=1"')
-      expect(unit).toContain("StandardOutput=append:/run/user/42/sensus-42/daemon.log")
+      expect(unit).toContain(`StandardOutput=append:${logPath}`)
+      expect(existsSync(join(home, "state", "logs"))).toBe(true)
       expect(runner.calls).toEqual([
         ["systemctl", "--user", "daemon-reload"],
         ["systemctl", "--user", "enable", "--now", SYSTEMD_UNIT_NAME],
+        ["systemctl", "--user", "is-enabled", SYSTEMD_UNIT_NAME],
+        ["loginctl", "show-user", "tester", "-p", "Linger"],
+        ["systemctl", "--user", "is-active", SYSTEMD_UNIT_NAME],
       ])
       expect(out.join("\n")).toContain("installed")
+    } finally {
+      cleanup()
+    }
+  })
+
+  test("the service banner defaults to the persistent state dir and its parent is created", async () => {
+    const { home, cleanup } = tempHome()
+    try {
+      const unitDir = join(home, "units")
+      const expected = daemonServiceLogPath({ HOME: home, USER: "tester" })
+      const { io } = captureIo()
+      expect(
+        await installService({
+          io,
+          env: { HOME: home, USER: "tester" },
+          platform: "linux",
+          unitDir,
+          selfArgv: ["/opt/sensus"],
+          uid: 1000,
+          runner: recorder(),
+        }),
+      ).toBe(0)
+      expect(expected).toBe(join(home, ".local", "state", "sensus", "logs", "daemon.log"))
+      expect(existsSync(dirname(expected))).toBe(true)
+      const unit = readFileSync(join(unitDir, SYSTEMD_UNIT_NAME), "utf8")
+      expect(unit).toContain(`StandardOutput=append:${expected}`)
+    } finally {
+      cleanup()
+    }
+  })
+
+  test("a pinned SENSUS_HOME is used for the service banner too", async () => {
+    const { home, cleanup } = tempHome()
+    try {
+      const pinned = join(home, "pinned-home")
+      const unitDir = join(home, "units")
+      const { io } = captureIo()
+      expect(
+        await installService({
+          io,
+          env: { HOME: home, USER: "tester" },
+          platform: "linux",
+          unitDir,
+          selfArgv: ["/opt/sensus"],
+          sensusHome: pinned,
+          uid: 1000,
+          runner: recorder(),
+        }),
+      ).toBe(0)
+      const unit = readFileSync(join(unitDir, SYSTEMD_UNIT_NAME), "utf8")
+      expect(unit).toContain(`StandardOutput=append:${join(pinned, "logs", "daemon.log")}`)
+      expect(existsSync(join(pinned, "logs"))).toBe(true)
     } finally {
       cleanup()
     }
@@ -182,11 +258,12 @@ describe("sensus daemon install / uninstall", () => {
       const { out, err, io } = captureIo()
       const code = await installService({
         io,
-        env: { HOME: home },
+        env: { HOME: home, USER: "tester" },
         platform: "linux",
         unitDir,
         selfArgv: ["/opt/sensus"],
         runner,
+        uid: 1000,
         argv: ["--dry-run"],
       })
       expect(code).toBe(0)
@@ -196,6 +273,52 @@ describe("sensus daemon install / uninstall", () => {
       const text = out.join("\n")
       expect(text).toContain("dry run")
       expect(text).toContain('ExecStart="/opt/sensus" "daemon" "serve"')
+    } finally {
+      cleanup()
+    }
+  })
+
+  test("install warns when systemd lingering is disabled", async () => {
+    const { home, cleanup } = tempHome()
+    try {
+      const runner = lingerRunner("no")
+      const { err, io } = captureIo()
+      const code = await installService({
+        io,
+        env: { HOME: home, USER: "tester" },
+        platform: "linux",
+        unitDir: join(home, "units"),
+        selfArgv: ["/opt/sensus"],
+        runner,
+        uid: 1000,
+      })
+      expect(code).toBe(0)
+      expect(err.join("\n")).toContain("stops at logout")
+      expect(err.join("\n")).toContain("loginctl enable-linger tester")
+    } finally {
+      cleanup()
+    }
+  })
+
+  test("install --linger enables lingering for the service account", async () => {
+    const { home, cleanup } = tempHome()
+    try {
+      const runner = recorder()
+      const { out, io } = captureIo()
+      const code = await installService({
+        io,
+        env: { HOME: home, USER: "tester" },
+        platform: "linux",
+        unitDir: join(home, "units"),
+        selfArgv: ["/opt/sensus"],
+        runner,
+        uid: 1000,
+        argv: ["--linger"],
+      })
+      expect(code).toBe(0)
+      expect(runner.calls).toContainEqual(["loginctl", "enable-linger", "tester"])
+      expect(out.join("\n")).toContain("lingering enabled for tester")
+      expect(out.join("\n")).toContain("starts at boot")
     } finally {
       cleanup()
     }
@@ -213,6 +336,7 @@ describe("sensus daemon install / uninstall", () => {
         platform: "darwin",
         unitDir,
         selfArgv: ["/Applications/sensus"],
+        uid: 1000,
         runner,
       })
       expect(code).toBe(0)
@@ -228,7 +352,7 @@ describe("sensus daemon install / uninstall", () => {
       const second = recorder(0)
       const { io: io2 } = captureIo()
       expect(
-        await installService({ io: io2, env: { HOME: home }, platform: "darwin", unitDir, selfArgv: ["/Applications/sensus"], runner: second }),
+        await installService({ io: io2, env: { HOME: home }, platform: "darwin", unitDir, selfArgv: ["/Applications/sensus"], uid: 1000, runner: second }),
       ).toBe(0)
       expect(second.calls).toEqual([
         ["launchctl", "unload", "-w", file],
@@ -250,10 +374,89 @@ describe("sensus daemon install / uninstall", () => {
         platform: "linux",
         unitDir: join(home, "units"),
         selfArgv: ["/opt/sensus"],
+        uid: 1000,
         runner,
       })
       expect(code).toBe(1)
       expect(err.join("\n")).toContain("boom")
+    } finally {
+      cleanup()
+    }
+  })
+
+  test("install fails when the unit was written but is not enabled", async () => {
+    const { home, cleanup } = tempHome()
+    try {
+      // daemon-reload (0), enable --now (1), is-enabled (2) — the last fails
+      // when `systemctl is-enabled` reports disabled.
+      const runner = recorder(2)
+      const { err, io } = captureIo()
+      const code = await installService({
+        io,
+        env: { HOME: home, USER: "tester" },
+        platform: "linux",
+        unitDir: join(home, "units"),
+        selfArgv: ["/opt/sensus"],
+        uid: 1000,
+        runner,
+      })
+      expect(code).toBe(1)
+      expect(err.join("\n")).toContain("is-enabled")
+    } finally {
+      cleanup()
+    }
+  })
+
+  test("install warns when a root user service has no lingering", async () => {
+    const { home, cleanup } = tempHome()
+    try {
+      // The default recorder returns no Linger value, so the state is unknown.
+      const runner = recorder()
+      const { err, io } = captureIo()
+      const code = await installService({
+        io,
+        env: { HOME: home, USER: "root" },
+        platform: "linux",
+        unitDir: join(home, "units"),
+        selfArgv: ["/opt/sensus"],
+        uid: 0,
+        runner,
+      })
+      expect(code).toBe(0)
+      expect(err.join("\n")).toContain("root's user service does not start at boot")
+      expect(err.join("\n")).toContain("loginctl enable-linger root")
+    } finally {
+      cleanup()
+    }
+  })
+
+  test("install warns when the enabled unit is not running", async () => {
+    const { home, cleanup } = tempHome()
+    try {
+      const runner: CommandRunner = {
+        async run(argv: readonly string[]): Promise<CommandResult> {
+          if (argv[0] === "loginctl" && argv[1] === "show-user") {
+            return { ok: true, code: 0, stdout: "Linger=yes\n", stderr: "" }
+          }
+          if (argv[0] === "systemctl" && argv[2] === "is-active") {
+            return { ok: false, code: 3, stdout: "failed\n", stderr: "" }
+          }
+          return { ok: true, code: 0, stdout: "", stderr: "" }
+        },
+      }
+      const { err, io } = captureIo()
+      const code = await installService({
+        io,
+        env: { HOME: home, USER: "tester" },
+        platform: "linux",
+        unitDir: join(home, "units"),
+        selfArgv: ["/opt/sensus"],
+        uid: 1000,
+        runner,
+      })
+      expect(code).toBe(0)
+      expect(err.join("\n")).toContain("enabled but not running")
+      expect(err.join("\n")).toContain("failed")
     } finally {
       cleanup()
     }
@@ -283,6 +486,7 @@ describe("sensus daemon install / uninstall", () => {
         platform: "linux",
         unitDir,
         selfArgv: ["/opt/sensus"],
+        uid: 1000,
         runner: installRunner,
       })
       expect(existsSync(file)).toBe(true)

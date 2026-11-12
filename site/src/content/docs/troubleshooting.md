@@ -77,6 +77,38 @@ socket; or an old service still holding your shells.
 `sensus kill` stops every sensus service this user runs, whatever started it (`--dry-run`
 lists first). Starting the service again unlinks a stale socket automatically.
 
+## The always-on service does not start after a reboot
+
+**Symptom:** `sensus daemon install` succeeded, but after a reboot `sensus daemon status`
+says not running, and `sudo systemctl enable sensus` reports that the unit does not exist.
+
+**Cause:** the always-on service is a systemd **user** service, not a system service.
+`sudo systemctl` looks in the system manager, where the unit is not installed. A user
+service also starts only with that user's user manager; on a headless machine nobody logs
+in, so without lingering it never starts. Running the install through `sudo su` makes this
+worse: the service belongs to root, and root's user manager is not started at boot unless
+lingering is enabled.
+
+**Fix:** install as the user who should run sensus (not root), and enable lingering so it
+starts at boot:
+
+```sh
+sensus daemon install --linger
+systemctl --user is-enabled sensus
+```
+
+The second command should print `enabled`. To repair an existing root install, do this as
+root:
+
+```sh
+loginctl enable-linger root
+sensus daemon install --linger
+```
+
+Then reboot and check `sensus daemon status`. If it still fails, `sensus daemon logs`
+points at the startup banner. Running the agent as root is supported for a single-user
+homelab, but not recommended on a shared host.
+
 ## After an update, the old version is still running
 
 **Symptom:** an update does not seem to take effect, or boot warns about a version mismatch.

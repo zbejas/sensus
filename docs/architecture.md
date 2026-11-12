@@ -240,7 +240,7 @@ under `src/daemon/**` (D18).
 |---|---|
 | `app.ts` | `createDaemonApp`: the Elysia app (health/info/config/agents/skills + the memory/sessions/audit resources) and the defensive JSON `onError` |
 | `auth.ts` | Constant-time bearer auth (`bearerAuth` global hook); every request is gated |
-| `token.ts` · `paths.ts` | `0700` dir + `0600` token/pidfile helpers; `daemon.sock`/`daemon.token`/`daemon.pid`/`daemon.log`/`daemon-log.jsonl` |
+| `token.ts` · `paths.ts` | `0700` dir + `0600` token/pidfile helpers; `daemon.sock`/`daemon.token`/`daemon.pid`/`daemon.log`/`daemon-log.jsonl`; the persistent-service banner uses `daemonServiceLogPath` in the state dir |
 | `serve.ts` | `startDaemon`: binds the UDS (REST) + loopback TCP listener (REST + terminal WS); builds `instance.json`, configures the structured logger (docs/operations.md), and defaults the event log to `JsonlEventSink` (docs/events.md); returns `stop()` (which kills every shell and flushes the log) |
 | `log.ts` · `logStrict.ts` | `componentLogger` (lazy per-component child logger so a boot-time `configureLogger` applies) and the `SENSUS_LOG_STRICT=1` rethrow gate |
 | `shells.ts` | `ShellRegistry`: the daemon-owned PTY shells (`PtySession`), controller/observer roles (D11), the bounded replay buffer (D12), client facts (D2), and the streamed `terminal.status` facts |

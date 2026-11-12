@@ -118,8 +118,10 @@ event it fired on); an unparseable line never matches when a filter is set.
 
 `sensus daemon install` writes a **user** service unit that runs the daemon in
 persistent mode (`SENSUS_DAEMON_PERSISTENT=1`), so triggers keep watching with
-no TUI attached; `uninstall` removes it. The units, paths, and `--dry-run` are
-documented in [`operations.md`](operations.md) "Daemon".
+no TUI attached; `uninstall` removes it. On a headless Linux host add `--linger`
+so the user manager starts the service at boot without a login. The units,
+paths, and `--dry-run` are documented in [`operations.md`](operations.md)
+"Daemon".
 
 ## Gotchas & invariants
 

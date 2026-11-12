@@ -72,6 +72,7 @@ export {
   daemonLogPath,
   daemonPidPath,
   daemonRuntimeDir,
+  daemonServiceLogPath,
   daemonSocketPath,
   daemonTokenPath,
 } from "./paths.ts"

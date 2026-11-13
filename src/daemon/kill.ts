@@ -20,8 +20,7 @@
 import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs"
 import { homedir } from "node:os"
 import { basename } from "node:path"
-import { sensusRuntimeDirFrom } from "../engine/index.ts"
-import { daemonPidPath, daemonSocketPath } from "./paths.ts"
+import { daemonPidPath, daemonSocketPath, resolveDaemonRuntimeDir } from "./paths.ts"
 import { serviceUnitKind, serviceUnitPath } from "./service.ts"
 import { readPidFile } from "./token.ts"
 
@@ -324,7 +323,7 @@ export async function runKill(
   // Union with the current runtime dir's pidfile: a daemon the scan cannot see
   // (a renamed binary, a restricted /proc) is still stopped when it is the one
   // this environment owns. Same pidfile contract `daemon stop` uses.
-  const currentDir = sensusRuntimeDirFrom(env)
+  const currentDir = resolveDaemonRuntimeDir(env)
   const pidfilePid = readPidFile(daemonPidPath(currentDir))
   const byPid = new Map<number, DaemonProcess>()
   for (const daemon of scanned.daemons) byPid.set(daemon.pid, daemon)

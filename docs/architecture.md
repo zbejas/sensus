@@ -282,10 +282,12 @@ unreferenced in `src/**` and v1 ships no forwarding (D8).
 
 P6 adds the opt-in always-on layer: `sensus daemon install/uninstall`
 (`service.ts`) write/remove a **user** systemd unit or launchd agent that runs
-`serve` in persistent mode, and `triggers.ts` watches the v1 stream for the
-configured `triggers` rules, recording matches to `triggers.jsonl` and
-broadcasting a `trigger` WS event (docs/triggers.md). Still local-only — no
-telemetry egress (D8).
+`serve` in persistent mode; on Linux, `--root` (or a root shell by default)
+uses `systemService.ts` for the root-owned `/etc/systemd/system/sensus.service`
+at `/run/sensus`. `triggers.ts` watches the v1 stream for the configured
+`triggers` rules, recording matches to `triggers.jsonl` and broadcasting a
+`trigger` WS event (docs/triggers.md). Still local-only — no telemetry egress
+(D8).
 
 The opt-in cloud tunnel (`cloud/`) is the one control-plane egress exception: after
 `sensus cloud pair`, `serve` starts an outbound WSS to the pinned origin, with the
@@ -294,12 +296,13 @@ typed broker enforcing the host policy through the `TUNNEL_OPS` op → scope tab
 transcript and memory reads; transcript deletion is off unless the host-local
 `deleteTranscripts` flag is set. It is off until paired, and a paired tunnel
 pins the daemon so the panel can reach it after a reconnect ([`auth.md`](auth.md)).
-When pairing runs with no daemon, `cloud pair` installs/enables the same user
-service (attempting lingering) before waiting for the tunnel, and falls back to a
+When pairing runs with no daemon, `cloud pair` installs/enables the matching
+service before waiting for the tunnel: the user unit (attempting lingering), or
+the root system unit in a root shell / with `--root`. It falls back to a
 detached `daemon start` when the service manager is unavailable.
 `reconcileCloudService` repairs an existing pairing whose unit predates that
 behavior (on `sensus update`, daemon boot, and TUI boot); it enables the unit
-without starting a second daemon.
+without starting a second daemon, targeting the system unit for a root scope.
 
 ### `client/`
 

@@ -7,12 +7,41 @@
  * `sensusRuntimeDir()` unless a caller passes one explicitly (tests).
  */
 
+import { existsSync } from "node:fs"
 import { join } from "node:path"
-import { sensusRuntimeDir, sensusStateDirFrom } from "../engine/index.ts"
+import { sensusRuntimeDirFrom, sensusStateDirFrom } from "../engine/index.ts"
+
+/** Runtime dir the root `--root` system service owns. */
+export const SYSTEM_RUNTIME_DIR = "/run/sensus"
+
+/** True when a root shell should attach to the system service. */
+export function systemRuntimeAvailable(): boolean {
+  if ((process.getuid?.() ?? -1) !== 0) return false
+  try {
+    return existsSync(join(SYSTEM_RUNTIME_DIR, "daemon.token"))
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Runtime dir for a CLI/TUI invocation: an explicit `SENSUS_RUNTIME_DIR` wins,
+ * then a root shell prefers the running system service at `/run/sensus`, then
+ * the normal per-user directory.
+ */
+export function resolveDaemonRuntimeDir(
+  env: NodeJS.ProcessEnv = process.env,
+  opts: { systemAvailable?: () => boolean } = {},
+): string {
+  const explicit = env["SENSUS_RUNTIME_DIR"]
+  if (explicit !== undefined) return explicit
+  if ((opts.systemAvailable ?? systemRuntimeAvailable)()) return SYSTEM_RUNTIME_DIR
+  return sensusRuntimeDirFrom(env)
+}
 
 /** Runtime dir the daemon owns (`0700`). */
 export function daemonRuntimeDir(): string {
-  return sensusRuntimeDir()
+  return resolveDaemonRuntimeDir()
 }
 
 /** Unix socket the management API binds. */

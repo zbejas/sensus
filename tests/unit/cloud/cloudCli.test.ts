@@ -109,6 +109,11 @@ function baseOpts(home: string, uid: number, over: Record<string, unknown> = {})
     // Pairing installs and starts the daemon by default, so every unrelated
     // test needs a no-op service seam rather than touching systemd/launchd.
     install: async () => 0,
+    installSystem: async () => 0,
+    systemInstalled: () => false,
+    findDaemonConflicts: () => [],
+    rootUserUnitInstalled: () => false,
+    stopRootDaemon: async () => 0,
     start: async () => 0,
     linger: async () => ({
       applicable: false,
@@ -224,8 +229,9 @@ describe("sensus cloud pair", () => {
     const home = tempHome()
     const denied = capture()
     const { fetchImpl } = fakeFetch()
+    // --user forces the per-user service, which keeps the explicit root gate.
     const deniedCode = await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait", "--user"],
       denied.io,
       { HOME: home, SENSUS_HOME: home, USER: "root" },
       baseOpts(home, 0, { fetchImpl }),
@@ -236,13 +242,14 @@ describe("sensus cloud pair", () => {
 
     const allowed = capture()
     const allowedCode = await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--allow-root", "--no-wait"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--allow-root", "--no-wait", "--user"],
       allowed.io,
       { HOME: home, SENSUS_HOME: home, USER: "root" },
       baseOpts(home, 0, { fetchImpl }),
     )
     expect(allowedCode).toBe(0)
     expect(allowed.err.join("\n")).toContain("installing a root user service")
+    expect(allowed.out.join("\n")).toContain("installed and enabled the Sensus daemon service")
     const conn = readCloudConnection(home)
     expect(conn.ok).toBe(true)
     if (conn.ok && conn.connection !== null) {
@@ -256,13 +263,133 @@ describe("sensus cloud pair", () => {
     const { io } = capture()
     const { fetchImpl } = fakeFetch()
     const code = await runCloud(
-      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait", "--user"],
       io,
       { HOME: home, SENSUS_HOME: home, USER: "root" },
       baseOpts(home, 0, { fetchImpl, interactive: true, confirm: async () => false }),
     )
     expect(code).toBe(1)
     expect(existsSync(join(home, "auth", "identity.json"))).toBe(false)
+  })
+
+  test("root defaults to the system service without --allow-root", async () => {
+    const home = tempHome()
+    const { io, out } = capture()
+    const { fetchImpl } = fakeFetch()
+    const systems: Array<{ home: string; runtimeDir: string; startNow?: boolean }> = []
+    let userInstalls = 0
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "root" },
+      baseOpts(home, 0, {
+        fetchImpl,
+        installSystem: async (input: { home: string; runtimeDir: string; startNow?: boolean }) => {
+          systems.push(input)
+          return 0
+        },
+        install: async () => {
+          userInstalls++
+          return 0
+        },
+      }),
+    )
+    expect(code).toBe(0)
+    expect(userInstalls).toBe(0)
+    expect(systems).toHaveLength(1)
+    expect(systems[0]?.startNow).toBe(true)
+    expect(out.join("\n")).toContain("installing the root Sensus system service")
+    expect(out.join("\n")).toContain("installed and enabled the root Sensus system service")
+    const conn = readCloudConnection(home)
+    expect(conn.ok && conn.connection?.serviceScope).toBe("system")
+  })
+
+  test("another account's daemon aborts the root switch before pairing", async () => {
+    const home = tempHome()
+    const { io, err } = capture()
+    const { fetchImpl } = fakeFetch()
+    let systems = 0
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "root" },
+      baseOpts(home, 0, {
+        fetchImpl,
+        findDaemonConflicts: () => [{ runtimeDir: "/run/user/1000/sensus-1000", uid: 1000, pid: 123 }],
+        installSystem: async () => {
+          systems++
+          return 0
+        },
+      }),
+    )
+    expect(code).toBe(1)
+    expect(err.join("\n")).toContain("another account")
+    expect(err.join("\n")).toContain("systemctl --user disable --now sensus")
+    expect(systems).toBe(0)
+    expect(existsSync(join(home, "auth", "identity.json"))).toBe(false)
+  })
+
+  test("a root user daemon is stopped after the switch prompt", async () => {
+    const home = tempHome()
+    const { io, out } = capture()
+    const { fetchImpl } = fakeFetch()
+    const stopped: string[] = []
+    let systems = 0
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "root" },
+      baseOpts(home, 0, {
+        fetchImpl,
+        interactive: true,
+        confirm: async () => true,
+        promptText: async () => "view",
+        findDaemonConflicts: () => [{ runtimeDir: "/run/user/0/sensus-0", uid: 0, pid: 123 }],
+        stopRootDaemon: async (runtimeDir: string) => {
+          stopped.push(runtimeDir)
+          return 0
+        },
+        installSystem: async () => {
+          systems++
+          return 0
+        },
+      }),
+    )
+    expect(code).toBe(0)
+    expect(stopped).toEqual(["/run/user/0/sensus-0"])
+    expect(systems).toBe(1)
+    expect(out.join("\n")).toContain("installing the root Sensus system service")
+  })
+
+  test("declining the switch prompt leaves the existing root daemon alone", async () => {
+    const home = tempHome()
+    const { io, err } = capture()
+    const { fetchImpl } = fakeFetch()
+    let stopped = 0
+    let systems = 0
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "root" },
+      baseOpts(home, 0, {
+        fetchImpl,
+        interactive: true,
+        confirm: async () => false,
+        findDaemonConflicts: () => [{ runtimeDir: "/run/user/0/sensus-0", uid: 0, pid: 123 }],
+        stopRootDaemon: async () => {
+          stopped++
+          return 0
+        },
+        installSystem: async () => {
+          systems++
+          return 0
+        },
+      }),
+    )
+    expect(code).toBe(1)
+    expect(stopped).toBe(0)
+    expect(systems).toBe(0)
+    expect(err.join("\n")).toContain("cancelled")
   })
 
   test("non-interactive pairing installs the service automatically and waits for the tunnel", async () => {
@@ -291,6 +418,8 @@ describe("sensus cloud pair", () => {
     expect(installs[0]?.home).toBe(home)
     expect(out.join("\n")).toContain("installed and enabled")
     expect(out.join("\n")).toContain("tunnel connected")
+    const conn = readCloudConnection(home)
+    expect(conn.ok && conn.connection?.serviceScope).toBe("user")
   })
 
   test("lingering is enabled automatically before the service install", async () => {
@@ -439,6 +568,8 @@ describe("sensus cloud pair", () => {
     expect(installs).toBe(0)
     expect(starts).toBe(1)
     expect(out.join("\n")).toContain("--no-service set")
+    const conn = readCloudConnection(home)
+    expect(conn.ok && conn.connection?.serviceScope).toBe("none")
   })
 
   test("a running daemon is reloaded instead of prompting for a service", async () => {

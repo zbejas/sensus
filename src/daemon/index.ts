@@ -75,6 +75,8 @@ export {
   daemonServiceLogPath,
   daemonSocketPath,
   daemonTokenPath,
+  SYSTEM_RUNTIME_DIR,
+  resolveDaemonRuntimeDir,
 } from "./paths.ts"
 export { ensureRuntimeDir, generateToken, readPidFile, readToken, writePidFile, writeToken } from "./token.ts"
 export type { TokenResult } from "./token.ts"
@@ -144,6 +146,17 @@ export type {
   ServiceUnitKind,
   ServiceUnitSpec,
 } from "./service.ts"
+export {
+  SYSTEM_CONFIG_HOME,
+  SYSTEM_UNIT_DIR,
+  SYSTEM_UNIT_NAME,
+  installSystemService,
+  renderSystemdSystemUnit,
+  systemServiceInstalled,
+  systemServicePath,
+  uninstallSystemService,
+} from "./systemService.ts"
+export type { SystemServiceOptions, SystemServiceSpec } from "./systemService.ts"
 export {
   TOOL_EVENT_TYPES,
   TRIGGER_LOG_MAX_BYTES,

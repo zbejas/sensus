@@ -23,6 +23,8 @@ import {
   type ServiceCommandOptions,
   type ServiceIo,
 } from "../service.ts"
+import { SYSTEM_RUNTIME_DIR } from "../paths.ts"
+import { installSystemService, systemServiceInstalled, systemServicePath } from "../systemService.ts"
 import { resolveRuntimeDir } from "./paths.ts"
 import { readCloudConnection } from "./state.ts"
 
@@ -32,6 +34,20 @@ export interface ReconcileCloudServiceOptions {
   env: NodeJS.ProcessEnv
   platform?: NodeJS.Platform
   io?: ServiceIo
+  /** Which service scope this pairing uses (default `user`). */
+  serviceScope?: "user" | "system"
+  /** Test seam: the root system unit exists. */
+  systemInstalled?: () => boolean
+  /** Test seam: install the root system unit. */
+  installSystem?: (opts: {
+    home: string
+    env: NodeJS.ProcessEnv
+    runtimeDir: string
+    startNow?: boolean
+    uid?: number
+  }) => Promise<number>
+  /** Override the uid used for a system install (tests). */
+  uid?: number
   /** Test seam: does the unit file exist? Defaults to `existsSync`. */
   unitExists?: (path: string) => boolean
   /** Test seam: is systemd actually running (Linux containers usually lack it)? */
@@ -50,7 +66,14 @@ export interface ReconcileCloudServiceOptions {
   }) => Promise<LingerEnableResult>
 }
 
-export type ReconcileCloudServiceStatus = "unpaired" | "disabled" | "unsupported" | "present" | "installed" | "failed"
+export type ReconcileCloudServiceStatus =
+  | "unpaired"
+  | "disabled"
+  | "unsupported"
+  | "none"
+  | "present"
+  | "installed"
+  | "failed"
 
 export interface ReconcileCloudServiceResult {
   status: ReconcileCloudServiceStatus
@@ -71,6 +94,24 @@ export async function reconcileCloudService(
     if (!read.connection.enabled) return { status: "disabled", detail: null, linger: "not-applicable" }
 
     const platform = opts.platform ?? process.platform
+    const scope = opts.serviceScope ?? read.connection.serviceScope ?? "user"
+    if (scope === "none") return { status: "none", detail: "pairing opted out of a service", linger: "not-applicable" }
+    if (scope === "system") {
+      const installed = opts.systemInstalled?.() ?? systemServiceInstalled()
+      if (installed) return { status: "present", detail: systemServicePath(), linger: "not-applicable" }
+      const install = opts.installSystem ?? installSystemService
+      const code = await install({
+        io: opts.io ?? { out: () => {}, err: () => {} },
+        env: opts.env,
+        home: opts.home,
+        runtimeDir: SYSTEM_RUNTIME_DIR,
+        startNow: false,
+        uid: opts.uid,
+      })
+      if (code !== 0) return { status: "failed", detail: `system service install exited ${code}`, linger: "not-applicable" }
+      return { status: "installed", detail: systemServicePath(), linger: "not-applicable" }
+    }
+
     const kind = serviceUnitKind(platform)
     if (kind === null) {
       return { status: "unsupported", detail: `no user service on ${platform}`, linger: "not-applicable" }

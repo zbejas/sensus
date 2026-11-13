@@ -29,8 +29,9 @@ alone cannot authenticate.
 | `src/daemon/cloud/ops.ts` | `TUNNEL_OPS` op → scope (+ `deleteTranscripts` policy gate) table consulted before the switch |
 | `src/daemon/cloud/discovery.ts` / `daemonClient.ts` | Local daemon token/port discovery + one local WS per cloud stream |
 | `src/daemon/cloud/client.ts` | Daemon-owned lifecycle: start/stop/reload, lifetime pin |
-| `src/daemon/cloud/reconcile.ts` | Repairs a missing user service for an existing pairing (update/daemon/TUI boot; never starts a second daemon) |
+| `src/daemon/cloud/reconcile.ts` | Repairs a missing user or root system service for an existing pairing (update/daemon/TUI boot; never starts a second daemon) |
 | `src/daemon/cloud/state.ts` / `paths.ts` | `connection.json` + run registry paths |
+| `src/daemon/systemService.ts` | Root-owned `/etc/systemd/system/sensus.service` (Linux systemd): render/install/uninstall, `/run/sensus`, no lingering |
 | `src/daemon/serve.ts` | Starts/stops the cloud client with the daemon |
 | `src/daemon/lifecycle.ts` | A paired tunnel pins the daemon (no idle exit) |
 | `tests/unit/cloud/**`, `tests/unit/daemon/cloud*.test.ts` | Pairing, root approval, service install/linger/reconcile, tunnel handshake/RPC |
@@ -42,7 +43,7 @@ alone cannot authenticate.
 ```bash
 sensus cloud pair --cloud https://cloud.example [--code ABCD-EFGH] \
   [--allow view,chat,control,orchestrator] [--allow-root] [--no-wait] \
-  [--no-service] [--no-linger]
+  [--no-service] [--no-linger] [--root|--user]
 sensus cloud scopes [--allow view,chat,control,orchestrator] [--delete-transcripts on|off] [--allow-root] [--json]
 sensus cloud status [--json]
 sensus cloud doctor [--json]
@@ -50,16 +51,22 @@ sensus cloud disable | enable | unpair
 ```
 
 - `pair` creates the identity and policy when missing, pairs, stores the token, and
-  then makes the daemon ready. A running daemon is reloaded and its missing unit is
-  installed/enabled without starting a second daemon. With no daemon running,
-  it installs and enables the daemon's **user** service for the pairing user, tries
-  to enable systemd lingering on Linux, and lets the service manager start it. If
-  the service manager is unavailable (a container, an unsupported platform), it
-  falls back to a detached `sensus daemon start` for the current session and says
-  the daemon will not restart after a reboot. `--no-service` skips the unit and
-  only starts the daemon for the session; `--no-linger` skips the lingering
-  attempt. After a reload or a service install it polls the daemon until the tunnel
-  reports `connected: true`
+  then makes the daemon ready. A root shell defaults to the root-owned **system**
+  service (`/etc/systemd/system/sensus.service`, `/root/.config/sensus`,
+  `/run/sensus`); `--user` keeps the per-user service even as root, and `--root`
+  forces the system service from any shell (uid 0). `--root` implies root approval
+  and rejects `--linger`. A running daemon is reloaded and a missing matching unit
+  is installed/enabled without starting a second daemon. With no daemon running,
+  pair installs/enables the chosen service and starts it. The user service tries
+  systemd lingering on Linux; the system service starts at boot. If the service
+  manager is unavailable (a container, an unsupported platform), pairing falls
+  back to a detached `sensus daemon start` for the current session and says the
+  daemon will not restart after a reboot. `--no-service` skips the unit and only
+  starts the daemon for the session; `--no-linger` skips the lingering attempt.
+  Before switching a root shell to the system service, pair prompts to stop root's
+  existing user daemon/service; a daemon owned by another account is reported with
+  the exact commands and aborts. After a reload or a service install it polls the
+  daemon until the tunnel reports `connected: true`
   (20 s by default) and exits non-zero with the daemon's `lastError` when it does
   not; `--no-wait` saves the pairing and returns immediately. A running daemon that
   reads another config home or runs as another uid is refused before pairing.
@@ -97,23 +104,27 @@ A host paired before `cloud pair` installed the service is repaired after an
 update. The same reconciliation (`src/daemon/cloud/reconcile.ts`) runs from
 `sensus update` after the installer succeeds, on every daemon boot, and on the
 TUI boot (which covers an old daemon that is still running). If `connection.json`
-is paired and enabled and the user unit is missing, it writes/enables the unit
-with `startNow: false` (never starting a second daemon), attempts lingering, and
-leaves the running daemon and its shells alone; the unit takes over at the next
-login/boot. A missing unit in a container/non-systemd host is reported as
-unsupported rather than retried on every boot. Failures are best-effort and
-never fail the update or the boot; `sensus cloud doctor` still reports the
-tunnel and lingering state.
+is paired and enabled and the matching unit is missing, it writes/enables the
+unit with `startNow: false` (never starting a second daemon) and leaves the
+running daemon and its shells alone; the unit takes over at the next
+login/boot. A root process targets the system unit (`/etc/systemd/system/sensus.service`,
+`startNow: false`); a root `--user` pairing keeps the per-user unit. The user
+scope attempts lingering. A missing unit in a container/non-systemd host is
+reported as unsupported rather than retried on every boot. Failures are
+best-effort and never fail the update or the boot; `sensus cloud doctor` still
+reports the tunnel and lingering state.
 
 ### Root approval
 
 Pairing and host-scope writes as root are refused by default. `--allow-root` (or an
 interactive `yes`) records the approval and the connection stores `runsAsRoot: true`.
 The daemon then prints a boot warning, `sensus cloud status` shows it, and the cloud
-Fleet panel marks the instance as root. After the approval, pairing installs root's
-user service like any other account, warns that a root user service may need lingering,
-and attempts to enable it. Root is allowed for single-user homelabs; it is never the
-quiet default.
+Fleet panel marks the instance as root. A root shell defaults to the root-owned
+system service, and `--root` itself is the explicit root approval: it pairs as
+root and installs `/etc/systemd/system/sensus.service` without a separate
+`--allow-root`. A root `--user` pairing keeps the per-user service and still
+requires `--allow-root`/interactive approval; it warns about lingering. Root is
+allowed for single-user homelabs; it is never the quiet default.
 
 ### Diagnosing "paired but never connected"
 
@@ -140,8 +151,9 @@ login page never receives the device token) and logs the status/content type, e.
 of the panel, `/api/connector` itself must be bypassed — not only
 `/api/connector/pair` and `/api/connector/whoami`.
 
-A pairing as root should use a user service plus lingering (or a manually managed
-system unit; `sensus daemon install` never writes a system-wide unit). See
+A pairing as root defaults to the root-owned system unit
+(`/etc/systemd/system/sensus.service`, `/run/sensus`) and needs no lingering.
+`--user` keeps the root user service instead, which does need lingering. See
 [`operations.md`](operations.md) "Persistent service".
 
 ### Files
@@ -188,6 +200,7 @@ system unit; `sensus daemon install` never writes a system-wide unit). See
   "unixUser": "alice",
   "uid": 1000,
   "runsAsRoot": false,
+  "serviceScope": "user",
   "enabled": true
 }
 ```

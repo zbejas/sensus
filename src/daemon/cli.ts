@@ -25,7 +25,7 @@
 
 import { closeSync, existsSync, openSync, readFileSync, rmSync, statSync } from "node:fs"
 import { flushLoggerSync, LOG_LEVELS, parseLogLine, type LogLevel, type LogRecord } from "../core/log.ts"
-import { sensusHomeFrom, sensusRuntimeDirFrom } from "../engine/index.ts"
+import { sensusHomeFrom } from "../engine/index.ts"
 import {
   daemonLogJsonlPath,
   daemonLogPath,
@@ -33,11 +33,13 @@ import {
   daemonServiceLogPath,
   daemonSocketPath,
   daemonTokenPath,
+  resolveDaemonRuntimeDir,
 } from "./paths.ts"
 import { componentLogger } from "./log.ts"
 import { DOCS_PATH } from "./openapi.ts"
 import { compiledEntry, daemonSelfArgv } from "./selfExec.ts"
 import { installService, uninstallService } from "./service.ts"
+import { installSystemService, uninstallSystemService } from "./systemService.ts"
 import { reconcileCloudService } from "./cloud/reconcile.ts"
 import { displayHost, startDaemon } from "./serve.ts"
 import { ensureRuntimeDir, readPidFile, readToken, writePidFile } from "./token.ts"
@@ -63,8 +65,12 @@ const USAGE = `usage: sensus daemon <command>
   restart      stop then start the daemon
   status       show the pid and a health probe
   logs         render the daemon's structured log (daemon-log.jsonl)
-  install      install the persistent user service (systemd/launchd; --dry-run, --linger)
-  uninstall    remove the persistent user service (--dry-run)
+  install      install the persistent service (--root system unit; --user user unit; --dry-run, --linger)
+  uninstall    remove the persistent service (--root/--user; --dry-run)
+
+A root shell defaults to --root (the system service); --user keeps the
+per-user service even when running as root. --root requires uid 0 and is
+Linux/systemd only.
 
 sensus daemon logs [flags]
 
@@ -299,7 +305,7 @@ export function classifyPriorDaemon(facts: {
 
 /** `sensus daemon serve` — foreground listeners that stay alive until a signal. */
 async function serveForeground(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<DaemonRunResult> {
-  const dir = sensusRuntimeDirFrom(env)
+  const dir = resolveDaemonRuntimeDir(env)
   const pidPath = daemonPidPath(dir)
   const socketPath = daemonSocketPath(dir)
   if (safeUid() === 0) {
@@ -434,7 +440,7 @@ async function serveForeground(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<Da
 
 /** `sensus daemon start` — spawn a detached `serve` and wait for health. */
 async function startDetached(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<DaemonRunResult> {
-  const dir = sensusRuntimeDirFrom(env)
+  const dir = resolveDaemonRuntimeDir(env)
   const pidPath = daemonPidPath(dir)
   const logPath = daemonLogPath(dir)
 
@@ -497,7 +503,7 @@ async function startDetached(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<Daem
 
 /** `sensus daemon stop` — SIGTERM the pidfile pid and confirm the socket is gone. */
 async function stopDaemon(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<DaemonRunResult> {
-  const dir = sensusRuntimeDirFrom(env)
+  const dir = resolveDaemonRuntimeDir(env)
   const pidPath = daemonPidPath(dir)
   const socketPath = daemonSocketPath(dir)
   const pid = readPidFile(pidPath)
@@ -557,7 +563,7 @@ async function restartDaemon(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<Daem
 
 /** `sensus daemon status` — pid + health; exit 0 only when healthy. */
 async function statusDaemon(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<DaemonRunResult> {
-  const dir = sensusRuntimeDirFrom(env)
+  const dir = resolveDaemonRuntimeDir(env)
   const pid = readPidFile(daemonPidPath(dir))
   if (pid === null || !isAlive(pid)) {
     io.out("sensus daemon: not running")
@@ -823,7 +829,7 @@ async function followStructuredLog(
  * USAGE block for flags and the color precedence.
  */
 async function logsDaemon(args: readonly string[], io: DaemonIo, env: NodeJS.ProcessEnv): Promise<DaemonRunResult> {
-  const dir = sensusRuntimeDirFrom(env)
+  const dir = resolveDaemonRuntimeDir(env)
   const logPath = daemonLogJsonlPath(dir)
   const { opts, error } = parseLogsOptions(args)
   if (error !== null) {
@@ -877,6 +883,58 @@ async function logsDaemon(args: readonly string[], io: DaemonIo, env: NodeJS.Pro
   return 0
 }
 
+/** Which service manager `daemon install/uninstall` should use. */
+type ServiceChoice = "user" | "system"
+
+/**
+ * Root shells default to the root-owned system service; `--user` forces the
+ * per-user unit, and `--root` forces the system unit from any shell (it still
+ * needs uid 0 to write `/etc/systemd/system`).
+ */
+function serviceChoice(args: readonly string[], uid: number): ServiceChoice | { error: string } {
+  const root = args.includes("--root")
+  const user = args.includes("--user")
+  if (root && user) return { error: "choose one of --root or --user" }
+  if (root) return "system"
+  if (user) return "user"
+  return uid === 0 ? "system" : "user"
+}
+
+/** Drop the choice flags before handing the rest to the installers. */
+function serviceArgs(args: readonly string[]): string[] {
+  return args.filter((arg) => arg !== "--root" && arg !== "--user")
+}
+
+async function installCommand(io: DaemonIo, env: NodeJS.ProcessEnv, args: readonly string[]): Promise<DaemonRunResult> {
+  const uid = process.getuid?.() ?? -1
+  const choice = serviceChoice(args, uid)
+  if (typeof choice !== "string") {
+    io.err(`sensus daemon install: ${choice.error}`)
+    return 1
+  }
+  const rest = serviceArgs(args)
+  if (choice === "system" && rest.includes("--linger")) {
+    io.err("sensus daemon install: --linger applies to user services; the system service starts at boot")
+    return 1
+  }
+  return choice === "system"
+    ? await installSystemService({ io, env, argv: rest })
+    : await installService({ io, env, argv: rest })
+}
+
+async function uninstallCommand(io: DaemonIo, env: NodeJS.ProcessEnv, args: readonly string[]): Promise<DaemonRunResult> {
+  const uid = process.getuid?.() ?? -1
+  const choice = serviceChoice(args, uid)
+  if (typeof choice !== "string") {
+    io.err(`sensus daemon uninstall: ${choice.error}`)
+    return 1
+  }
+  const rest = serviceArgs(args)
+  return choice === "system"
+    ? await uninstallSystemService({ io, env, argv: rest })
+    : await uninstallService({ io, env, argv: rest })
+}
+
 /**
  * Dispatch `sensus daemon <cmd>`. Returns the exit code. `env` is `process.env`
  * in production and a fake env in tests (spawned children inherit the real one).
@@ -897,9 +955,9 @@ export async function runDaemon(argv: readonly string[], io: DaemonIo, env: Node
     case "logs":
       return await logsDaemon(argv.slice(1), io, env)
     case "install":
-      return await installService({ io, env, argv: argv.slice(1) })
+      return await installCommand(io, env, argv.slice(1))
     case "uninstall":
-      return await uninstallService({ io, env, argv: argv.slice(1) })
+      return await uninstallCommand(io, env, argv.slice(1))
     default:
       io.err(USAGE)
       return 1

@@ -26,6 +26,8 @@ export interface CloudConnection {
   unixUser: string
   uid: number | undefined
   runsAsRoot: boolean
+  /** Which service scope the host paired with (older files omit it). */
+  serviceScope?: "user" | "system" | "none"
   /** False = keep the pairing but do not open the tunnel. */
   enabled: boolean
 }
@@ -66,6 +68,14 @@ function normalizeConnection(value: unknown): CloudConnection | null {
     unixUser: typeof unixUser === "string" && unixUser.length > 0 ? unixUser : String(uid ?? "unknown"),
     uid: typeof uid === "number" && Number.isFinite(uid) ? uid : undefined,
     runsAsRoot: value["runsAsRoot"] === true,
+    serviceScope:
+      value["serviceScope"] === "system"
+        ? "system"
+        : value["serviceScope"] === "none"
+          ? "none"
+          : value["serviceScope"] === "user"
+            ? "user"
+            : undefined,
     enabled: value["enabled"] !== false,
   }
 }

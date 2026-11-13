@@ -123,6 +123,7 @@ export {
   LAUNCHD_LABEL,
   LAUNCHD_PLIST_NAME,
   SYSTEMD_UNIT_NAME,
+  enableUserLinger,
   installService,
   realRunner,
   renderLaunchdPlist,
@@ -137,6 +138,7 @@ export {
 export type {
   CommandResult,
   CommandRunner,
+  LingerEnableResult,
   ServiceCommandOptions,
   ServiceIo,
   ServiceUnitKind,

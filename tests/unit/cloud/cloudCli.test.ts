@@ -11,6 +11,7 @@ import {
 } from "../../../src/daemon/cloud/pairing"
 import { readCloudConnection } from "../../../src/daemon/cloud/state"
 import type { DaemonInfoPayload, DiscoveryResult } from "../../../src/daemon/cloud/discovery"
+import type { ServiceCommandOptions } from "../../../src/daemon/index"
 import { SENSUS_VERSION } from "../../../src/version"
 
 const dirs: string[] = []
@@ -105,6 +106,18 @@ function baseOpts(home: string, uid: number, over: Record<string, unknown> = {})
     runtimeDir: join(home, "run"),
     interactive: false,
     discover: async () => stopped,
+    // Pairing installs and starts the daemon by default, so every unrelated
+    // test needs a no-op service seam rather than touching systemd/launchd.
+    install: async () => 0,
+    start: async () => 0,
+    linger: async () => ({
+      applicable: false,
+      enabled: null,
+      user: "tester",
+      enableCommand: null,
+      detail: "not systemd (test)",
+    }),
+    enableLinger: async () => ({ ok: true, detail: null }),
     ...over,
   }
 }
@@ -229,6 +242,7 @@ describe("sensus cloud pair", () => {
       baseOpts(home, 0, { fetchImpl }),
     )
     expect(allowedCode).toBe(0)
+    expect(allowed.err.join("\n")).toContain("installing a root user service")
     const conn = readCloudConnection(home)
     expect(conn.ok).toBe(true)
     if (conn.ok && conn.connection !== null) {
@@ -251,9 +265,9 @@ describe("sensus cloud pair", () => {
     expect(existsSync(join(home, "auth", "identity.json"))).toBe(false)
   })
 
-  test("no daemon: asks to install the per-user service and starts it", async () => {
+  test("non-interactive pairing installs the service automatically and waits for the tunnel", async () => {
     const home = tempHome()
-    const { io, out } = capture()
+    const { io, out, err } = capture()
     const { fetchImpl } = fakeFetch()
     const installs: Array<{ home: string; runtimeDir: string }> = []
     const code = await runCloud(
@@ -262,9 +276,6 @@ describe("sensus cloud pair", () => {
       { HOME: home, SENSUS_HOME: home, USER: "tester" },
       baseOpts(home, 1000, {
         fetchImpl,
-        interactive: true,
-        confirm: async () => true,
-        promptText: async () => "view",
         cloudStatus: async () => readyDaemon(home),
         install: async (input: { home: string; runtimeDir: string }) => {
           installs.push(input)
@@ -273,10 +284,161 @@ describe("sensus cloud pair", () => {
       }),
     )
     expect(code).toBe(0)
+    expect(err.join("\n")).not.toContain("could not")
     expect(out.join("\n")).toContain("no Sensus daemon is running for tester")
+    expect(out.join("\n")).toContain("installing the Sensus daemon service")
     expect(installs).toHaveLength(1)
+    expect(installs[0]?.home).toBe(home)
     expect(out.join("\n")).toContain("installed and enabled")
     expect(out.join("\n")).toContain("tunnel connected")
+  })
+
+  test("lingering is enabled automatically before the service install", async () => {
+    const home = tempHome()
+    const { io, out } = capture()
+    const { fetchImpl } = fakeFetch()
+    const enabled: string[] = []
+    let installs = 0
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, {
+        fetchImpl,
+        linger: async () => ({
+          applicable: true,
+          enabled: false,
+          user: "tester",
+          enableCommand: "loginctl enable-linger tester",
+          detail: null,
+        }),
+        enableLinger: async ({ user }: { user: string }) => {
+          enabled.push(user)
+          return { ok: true, detail: null }
+        },
+        install: async () => {
+          installs++
+          return 0
+        },
+      }),
+    )
+    expect(code).toBe(0)
+    expect(enabled).toEqual(["tester"])
+    expect(installs).toBe(1)
+    expect(out.join("\n")).toContain("lingering enabled for tester")
+  })
+
+  test("a refused lingering command warns but does not fail the pairing", async () => {
+    const home = tempHome()
+    const { io, out, err } = capture()
+    const { fetchImpl } = fakeFetch()
+    let installs = 0
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, {
+        fetchImpl,
+        linger: async () => ({
+          applicable: true,
+          enabled: false,
+          user: "tester",
+          enableCommand: "loginctl enable-linger tester",
+          detail: null,
+        }),
+        enableLinger: async () => ({ ok: false, detail: "Interactive authentication required" }),
+        install: async () => {
+          installs++
+          return 0
+        },
+      }),
+    )
+    expect(code).toBe(0)
+    expect(installs).toBe(1)
+    expect(out.join("\n")).toContain("installed and enabled")
+    expect(err.join("\n")).toContain("could not enable lingering for tester")
+    expect(err.join("\n")).toContain("loginctl enable-linger tester")
+  })
+
+  test("--no-linger skips the lingering attempt", async () => {
+    const home = tempHome()
+    const { io, out } = capture()
+    const { fetchImpl } = fakeFetch()
+    let lingerEnabled = 0
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait", "--no-linger"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, {
+        fetchImpl,
+        linger: async () => ({
+          applicable: true,
+          enabled: false,
+          user: "tester",
+          enableCommand: "loginctl enable-linger tester",
+          detail: null,
+        }),
+        enableLinger: async () => {
+          lingerEnabled++
+          return { ok: true, detail: null }
+        },
+      }),
+    )
+    expect(code).toBe(0)
+    expect(lingerEnabled).toBe(0)
+    expect(out.join("\n")).not.toContain("lingering enabled for tester")
+  })
+
+  test("a failed service install falls back to a detached daemon start", async () => {
+    const home = tempHome()
+    const { io, out, err } = capture()
+    const { fetchImpl } = fakeFetch()
+    let starts = 0
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, {
+        fetchImpl,
+        install: async () => 1,
+        start: async () => {
+          starts++
+          return 0
+        },
+      }),
+    )
+    expect(code).toBe(0)
+    expect(starts).toBe(1)
+    expect(err.join("\n")).toContain("could not install the daemon service")
+    expect(out.join("\n")).toContain("will not restart after a reboot")
+  })
+
+  test("--no-service starts the daemon for the session without installing a unit", async () => {
+    const home = tempHome()
+    const { io, out } = capture()
+    const { fetchImpl } = fakeFetch()
+    let installs = 0
+    let starts = 0
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait", "--no-service"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, {
+        fetchImpl,
+        install: async () => {
+          installs++
+          return 0
+        },
+        start: async () => {
+          starts++
+          return 0
+        },
+      }),
+    )
+    expect(code).toBe(0)
+    expect(installs).toBe(0)
+    expect(starts).toBe(1)
+    expect(out.join("\n")).toContain("--no-service set")
   })
 
   test("a running daemon is reloaded instead of prompting for a service", async () => {
@@ -302,6 +464,64 @@ describe("sensus cloud pair", () => {
     expect(reloads).toBe(1)
     expect(out.join("\n")).toContain("daemon reloaded")
     expect(out.join("\n")).toContain("tunnel connected")
+  })
+
+  test("a running daemon also gets the missing service installed without a second start", async () => {
+    const home = tempHome()
+    const { io, out } = capture()
+    const { fetchImpl } = fakeFetch()
+    const installs: ServiceCommandOptions[] = []
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, {
+        fetchImpl,
+        discover: async () => running,
+        reload: async () => ({ ok: true }),
+        unitExists: () => false,
+        systemdAvailable: () => true,
+        linger: async () => ({
+          applicable: true,
+          enabled: true,
+          user: "tester",
+          enableCommand: "loginctl enable-linger tester",
+          detail: null,
+        }),
+        install: async (input: unknown) => {
+          installs.push(input as ServiceCommandOptions)
+          return 0
+        },
+      }),
+    )
+    expect(code).toBe(0)
+    expect(installs).toHaveLength(1)
+    expect(installs[0]?.startNow).toBe(false)
+    expect(out.join("\n")).toContain("installed and enabled the Sensus daemon service")
+  })
+
+  test("--no-service skips the unit even with a running daemon", async () => {
+    const home = tempHome()
+    const { io } = capture()
+    const { fetchImpl } = fakeFetch()
+    let installs = 0
+    const code = await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait", "--no-service"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, {
+        fetchImpl,
+        discover: async () => running,
+        unitExists: () => false,
+        systemdAvailable: () => true,
+        install: async () => {
+          installs++
+          return 0
+        },
+      }),
+    )
+    expect(code).toBe(0)
+    expect(installs).toBe(0)
   })
 
   test("the pair request advertises the embedded daemon and host user", async () => {

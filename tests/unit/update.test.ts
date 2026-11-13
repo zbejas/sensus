@@ -253,6 +253,32 @@ describe("sensus update command", () => {
     }
   })
 
+  test("a successful update repairs the service for an existing cloud pairing", async () => {
+    const { dir, cleanup } = tempDir()
+    try {
+      const { lines, errors, io } = captureIo()
+      const release = fakeRelease("v9.9.9")
+      const calls: Array<{ home: string; env: NodeJS.ProcessEnv }> = []
+      const code = await runUpdate([], io, { HOME: dir, SENSUS_HOME: join(dir, "config") }, {
+        fetchImpl: release.fetchImpl,
+        compiled: true,
+        execPath: "/home/u/.local/bin/sensus",
+        runInstaller: async () => 0,
+        reconcile: async (input) => {
+          calls.push(input)
+          return { status: "installed", detail: join(dir, "unit"), linger: "enabled" }
+        },
+      })
+      expect(code).toBe(0)
+      expect(calls).toHaveLength(1)
+      expect(calls[0]?.home).toBe(join(dir, "config"))
+      expect(lines.join("\n")).toContain("enabled the Sensus daemon service")
+      expect(errors).toEqual([])
+    } finally {
+      cleanup()
+    }
+  })
+
   test("a source checkout refuses to self-update and points at git", async () => {
     const { errors, io } = captureIo()
     const release = fakeRelease("v9.9.9")

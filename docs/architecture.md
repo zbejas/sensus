@@ -294,6 +294,12 @@ typed broker enforcing the host policy through the `TUNNEL_OPS` op → scope tab
 transcript and memory reads; transcript deletion is off unless the host-local
 `deleteTranscripts` flag is set. It is off until paired, and a paired tunnel
 pins the daemon so the panel can reach it after a reconnect ([`auth.md`](auth.md)).
+When pairing runs with no daemon, `cloud pair` installs/enables the same user
+service (attempting lingering) before waiting for the tunnel, and falls back to a
+detached `daemon start` when the service manager is unavailable.
+`reconcileCloudService` repairs an existing pairing whose unit predates that
+behavior (on `sensus update`, daemon boot, and TUI boot); it enables the unit
+without starting a second daemon.
 
 ### `client/`
 

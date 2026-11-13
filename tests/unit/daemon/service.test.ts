@@ -14,6 +14,7 @@ import {
   LAUNCHD_PLIST_NAME,
   SYSTEMD_UNIT_NAME,
   daemonServiceLogPath,
+  enableUserLinger,
   installService,
   renderLaunchdPlist,
   renderServiceUnit,
@@ -319,6 +320,80 @@ describe("sensus daemon install / uninstall", () => {
       expect(runner.calls).toContainEqual(["loginctl", "enable-linger", "tester"])
       expect(out.join("\n")).toContain("lingering enabled for tester")
       expect(out.join("\n")).toContain("starts at boot")
+    } finally {
+      cleanup()
+    }
+  })
+
+  test("enableUserLinger runs loginctl on Linux and reports a refusal", async () => {
+    const ok = recorder()
+    expect(await enableUserLinger({ env: { USER: "tester" }, platform: "linux", runner: ok })).toEqual({
+      ok: true,
+      detail: null,
+    })
+    expect(ok.calls).toEqual([["loginctl", "enable-linger", "tester"]])
+
+    const denied: CommandRunner = {
+      async run(): Promise<CommandResult> {
+        return { ok: false, code: 1, stdout: "", stderr: "Interactive authentication required" }
+      },
+    }
+    expect(await enableUserLinger({ env: { USER: "tester" }, platform: "linux", runner: denied })).toEqual({
+      ok: false,
+      detail: "Interactive authentication required",
+    })
+
+    const mac = recorder()
+    expect(await enableUserLinger({ env: { USER: "tester" }, platform: "darwin", runner: mac })).toEqual({
+      ok: true,
+      detail: null,
+    })
+    expect(mac.calls).toEqual([])
+  })
+
+  test("install startNow:false enables the unit without starting or probing it", async () => {
+    const { home, cleanup } = tempHome()
+    try {
+      const runner = recorder()
+      const { io } = captureIo()
+      const code = await installService({
+        io,
+        env: { HOME: home, USER: "tester" },
+        platform: "linux",
+        unitDir: join(home, "units"),
+        selfArgv: ["/opt/sensus"],
+        runner,
+        uid: 1000,
+        startNow: false,
+      })
+      expect(code).toBe(0)
+      expect(runner.calls).toContainEqual(["systemctl", "--user", "enable", SYSTEMD_UNIT_NAME])
+      expect(runner.calls).not.toContainEqual(["systemctl", "--user", "enable", "--now", SYSTEMD_UNIT_NAME])
+      expect(runner.calls.some((call) => call[2] === "is-active")).toBe(false)
+    } finally {
+      cleanup()
+    }
+  })
+
+  test("install startNow:false on macOS writes the plist without loading it", async () => {
+    const { home, cleanup } = tempHome()
+    try {
+      const unitDir = join(home, "agents")
+      const runner = recorder()
+      const { io } = captureIo()
+      const code = await installService({
+        io,
+        env: { HOME: home },
+        platform: "darwin",
+        unitDir,
+        selfArgv: ["/Applications/sensus"],
+        uid: 1000,
+        runner,
+        startNow: false,
+      })
+      expect(code).toBe(0)
+      expect(runner.calls).toEqual([])
+      expect(existsSync(join(unitDir, LAUNCHD_PLIST_NAME))).toBe(true)
     } finally {
       cleanup()
     }

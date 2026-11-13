@@ -38,6 +38,7 @@ import { componentLogger } from "./log.ts"
 import { DOCS_PATH } from "./openapi.ts"
 import { compiledEntry, daemonSelfArgv } from "./selfExec.ts"
 import { installService, uninstallService } from "./service.ts"
+import { reconcileCloudService } from "./cloud/reconcile.ts"
 import { displayHost, startDaemon } from "./serve.ts"
 import { ensureRuntimeDir, readPidFile, readToken, writePidFile } from "./token.ts"
 import { safeUid } from "../auth/paths.ts"
@@ -411,6 +412,21 @@ async function serveForeground(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<Da
       `sensus daemon: warning: bound to ${res.tcp.host} — the REST/WS API is reachable beyond loopback (still bearer-gated) and the docs are unauthenticated`,
     )
   }
+
+  // A host paired before `cloud pair` installed a service has no user unit.
+  // Reconcile it on daemon boot so an update repairs the always-on layer
+  // without a re-pair. Best-effort background work: never blocks or kills boot.
+  void reconcileCloudService({ home: sensusHomeFrom(env), env })
+    .then((result) => {
+      if (result.status === "installed") {
+        log.info("cloud service reconciled", { service: result.detail, linger: result.linger })
+      } else if (result.status === "failed") {
+        log.warn("cloud service reconcile failed", { err: result.detail })
+      }
+    })
+    .catch((e: unknown) => {
+      log.warn("cloud service reconcile failed", { err: e })
+    })
 
   await new Promise<never>(() => {})
   return 0 // unreachable

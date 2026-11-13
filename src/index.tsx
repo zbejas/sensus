@@ -112,6 +112,19 @@ async function main(): Promise<number> {
     console.error("sensus: cannot reach the daemon — run `sensus daemon start` and retry")
     return 1
   }
+  // Repair the always-on service for a host that paired before `cloud pair`
+  // installed one. Background and best-effort: boot never waits on systemd.
+  void (async () => {
+    try {
+      const { reconcileCloudService } = await import("./daemon/cloud/reconcile.ts")
+      const result = await reconcileCloudService({ home: sensusHome(), env: process.env })
+      if (result.status === "failed") {
+        console.error(`sensus: warning: could not repair the daemon service: ${result.detail ?? "unknown error"}`)
+      }
+    } catch (e) {
+      console.error(`sensus: warning: could not repair the daemon service: ${errorMessage(e)}`)
+    }
+  })()
   // D21 version handshake: a running daemon whose version differs AND that still
   // holds live shells cannot be replaced silently. `connect()` hands that up as a
   // warning instead of losing the shells; prompt at boot and let the user choose

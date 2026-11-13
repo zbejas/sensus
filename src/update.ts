@@ -20,7 +20,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { basename, dirname, join } from "node:path"
 import { errorMessage } from "./core/util.ts"
-import { sensusStateDirFrom } from "./config/config.ts"
+import { sensusHomeFrom, sensusStateDirFrom } from "./config/config.ts"
+import type { ReconcileCloudServiceResult } from "./daemon/cloud/reconcile.ts"
 import { SENSUS_VERSION } from "./version.ts"
 
 /** How long a completed check is reused before asking again (24h). */
@@ -272,6 +273,8 @@ export interface UpdateDeps {
   /** Compiled-binary check (defaults to the `$bunfs` probe, like the client). */
   compiled?: boolean
   execPath?: string
+  /** Test seam: repair the cloud service after a successful install. */
+  reconcile?: (opts: { home: string; env: NodeJS.ProcessEnv }) => Promise<ReconcileCloudServiceResult>
   now?: () => number
   timeoutMs?: number
 }
@@ -427,6 +430,32 @@ export async function runUpdate(
     return 1
   }
   io.out(`sensus update: installed v${normalizeTag(target)} — restart your sensus session to use it.`)
+  // Repair the always-on layer for a host that paired before `cloud pair`
+  // started installing the user service. The running daemon (if any) is left
+  // alone; the unit is enabled for the next login/boot (docs/auth.md).
+  // `HOME` also keeps unit tests (which pass a bare env) from touching the
+  // developer's real user service; production always has it.
+  if (env["HOME"] !== undefined) {
+    try {
+      const reconcile =
+        deps.reconcile ??
+        (async (input: { home: string; env: NodeJS.ProcessEnv }) => {
+          const { reconcileCloudService } = await import("./daemon/cloud/reconcile.ts")
+          return await reconcileCloudService(input)
+        })
+      const reconciled = await reconcile({ home: sensusHomeFrom(env), env })
+      if (reconciled.status === "installed") {
+        io.out("sensus update: enabled the Sensus daemon service for the existing cloud pairing")
+        if (reconciled.linger === "failed") {
+          io.err("sensus update: warning: could not enable lingering; the service starts when you log in.")
+        }
+      } else if (reconciled.status === "failed") {
+        io.err(`sensus update: warning: could not repair the daemon service: ${reconciled.detail ?? "unknown error"}`)
+      }
+    } catch (e) {
+      io.err(`sensus update: warning: could not repair the daemon service: ${errorMessage(e)}`)
+    }
+  }
   io.out("sensus update: `sensus daemon restart` moves the running daemon to the new version (it will lose live shells).")
   return 0
 }

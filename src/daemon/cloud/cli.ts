@@ -18,7 +18,15 @@ import { parseScopeList, hasScope, SCOPES, type Scope } from "../../auth/scopes.
 import { safeUid } from "../../auth/paths.ts"
 import { sensusHomeFrom } from "../../config/config/paths.ts"
 import { SENSUS_VERSION } from "../../version.ts"
-import { checkUserLinger, installService, type LingerStatus } from "../service.ts"
+import {
+  checkUserLinger,
+  enableUserLinger,
+  installService,
+  type LingerEnableResult,
+  type LingerStatus,
+  type ServiceCommandOptions,
+} from "../service.ts"
+import { reconcileCloudService } from "./reconcile.ts"
 import { discoverDaemon, requestOverUnix, type DaemonInfoPayload } from "./discovery.ts"
 import { daemonSocketPath, resolveRuntimeDir } from "./paths.ts"
 import { pairWithCloud, promptHidden, whoami, parseConnectorConfigProfile, type ConnectorConfigProfile } from "./pairing.ts"
@@ -51,7 +59,21 @@ export interface CloudCliOptions {
   /** Test seam for the pairing scope prompt; default reads the TTY. */
   promptText?: (question: string) => Promise<string>
   /** Test seam for `sensus daemon install`. */
-  install?: (opts: { home: string; env: NodeJS.ProcessEnv; runtimeDir: string }) => Promise<number>
+  install?: (opts: {
+    home: string
+    env: NodeJS.ProcessEnv
+    runtimeDir: string
+    /** False when reconciling a daemon that is already running. */
+    startNow?: boolean
+  }) => Promise<number>
+  /** Test seam for `loginctl enable-linger` after a service install. */
+  enableLinger?: (opts: { env: NodeJS.ProcessEnv; user: string }) => Promise<LingerEnableResult>
+  /** Test seam for the detached `sensus daemon start` fallback. */
+  start?: (opts: { home: string; env: NodeJS.ProcessEnv; runtimeDir: string }) => Promise<number>
+  /** Test seam: is the service unit file already present? */
+  unitExists?: (path: string) => boolean
+  /** Test seam: is systemd running (Linux containers usually lack it)? */
+  systemdAvailable?: () => boolean
   /** Test seam for the local daemon probe. */
   discover?: (opts: { runtimeDir: string; env: NodeJS.ProcessEnv }) => ReturnType<typeof discoverDaemon>
   /** Test seam for the post-pair reload. */
@@ -90,7 +112,7 @@ export interface CloudDaemonStatus {
 const USAGE = `sensus cloud — pair this host with a Sensus Cloud panel
 
 Usage:
-  sensus cloud pair --cloud <url> [--code <CODE>] [--allow <scopes>] [--allow-root] [--no-wait]
+  sensus cloud pair --cloud <url> [--code <CODE>] [--allow <scopes>] [--allow-root] [--no-wait] [--no-service] [--no-linger]
   sensus cloud scopes [--allow <scopes>] [--delete-transcripts on|off] [--allow-root] [--json]
   sensus cloud status [--json]
   sensus cloud doctor [--json]
@@ -100,6 +122,11 @@ Usage:
 Pairing creates the host identity and scope policy if they do not exist,
 stores the device token at <config>/cloud/connection.json (0600), and opens
 one outbound WebSocket to the pinned cloud origin. No inbound port is opened.
+
+When no daemon is running, pair installs and enables the user service for the
+pairing user, tries to enable lingering on Linux, and starts it. If the service
+manager is unavailable it starts the daemon for the current session.
+--no-service skips the unit; --no-linger skips lingering.
 
 After pairing/reloading, the command waits for the daemon's tunnel to report
 connected and exits non-zero when it does not. --no-wait saves the pairing and
@@ -423,6 +450,13 @@ async function waitForTunnel(
   return { ok: false, connected: false, message: detail }
 }
 
+interface DaemonServiceSetup {
+  /** Install/enable the always-on user unit (false for `--no-service`). */
+  install: boolean
+  /** Try to enable systemd lingering (false for `--no-linger`). */
+  linger: boolean
+}
+
 async function ensureDaemonService(
   io: CloudIo,
   opts: CloudCliOptions,
@@ -430,14 +464,57 @@ async function ensureDaemonService(
   runtimeDir: string,
   uid: number,
   wait: boolean,
+  setup: DaemonServiceSetup,
 ): Promise<EnsureResult> {
   const env = opts.env ?? process.env
+  const user = unixUserLabel(uid, env)
   const discovery = await (opts.discover ?? discoverDaemon)({ runtimeDir, env })
   if (discovery.ok) {
     const reason = explainIncompatibility(io, discovery.discovery.info, home, uid)
     if (reason !== null) return { ok: false, connected: false, message: reason }
     if (!(await reloadDaemon(io, opts, home, runtimeDir))) {
       return { ok: false, connected: false, message: "daemon reload failed" }
+    }
+    // A daemon may already be running on demand (for example, pairing from a
+    // second pane while the TUI is open). Install/enable the unit now without
+    // starting a second daemon; the running one keeps the tunnel up meanwhile.
+    if (setup.install) {
+      const reconciled = await reconcileCloudService({
+        home,
+        env,
+        io,
+        tryLinger: setup.linger,
+        ...(opts.install !== undefined
+          ? {
+              install: async (input: ServiceCommandOptions) =>
+                opts.install!({
+                  home: input.sensusHome ?? home,
+                  env: input.env,
+                  runtimeDir: input.runtimeDir ?? runtimeDir,
+                  startNow: input.startNow,
+                }),
+            }
+          : {}),
+        ...(opts.linger !== undefined ? { linger: opts.linger } : {}),
+        ...(opts.enableLinger !== undefined
+          ? {
+              enableLinger: async (input: {
+                env: NodeJS.ProcessEnv
+                platform?: NodeJS.Platform
+                user?: string
+              }) => opts.enableLinger!({ env: input.env, user: input.user ?? user }),
+            }
+          : {}),
+        ...(opts.unitExists !== undefined ? { unitExists: opts.unitExists } : {}),
+        ...(opts.systemdAvailable !== undefined ? { systemdAvailable: opts.systemdAvailable } : {}),
+      })
+      if (reconciled.status === "installed") {
+        io.out(`sensus cloud: installed and enabled the Sensus daemon service for ${user}`)
+      } else if (reconciled.status === "failed") {
+        io.err(
+          `sensus cloud: warning: could not install the daemon service (${reconciled.detail ?? "unknown error"}); the running daemon keeps the tunnel up for now.`,
+        )
+      }
     }
     io.out(wait ? "sensus cloud: daemon reloaded; waiting for the tunnel…" : "sensus cloud: daemon reloaded")
     if (!wait) return { ok: true, connected: false, message: "not waiting" }
@@ -449,24 +526,61 @@ async function ensureDaemonService(
     io.err("sensus cloud: fix or restart it with `sensus daemon restart`; pairing is saved.")
     return { ok: false, connected: false, message }
   }
-  const user = unixUserLabel(uid, env)
   io.out(`sensus cloud: no Sensus daemon is running for ${user}.`)
+
+  const startFn =
+    opts.start ??
+    (async (input: { home: string; env: NodeJS.ProcessEnv; runtimeDir: string }) => {
+      const { runDaemon } = await import("../cli.ts")
+      // Pin the config home and runtime dir the pairing was written to, so the
+      // fallback daemon reads the new connection instead of another install.
+      const daemonEnv = { ...input.env, SENSUS_HOME: input.home, SENSUS_RUNTIME_DIR: input.runtimeDir }
+      return await runDaemon(["start"], io, daemonEnv)
+    })
+  const startForSession = async (message: string): Promise<EnsureResult> => {
+    io.out(`sensus cloud: ${message}`)
+    const code = await startFn({ home, env, runtimeDir })
+    if (code !== 0) {
+      io.err("sensus cloud: could not start the daemon; start it with `sensus daemon start` when ready.")
+      return { ok: false, connected: false, message: "daemon start failed" }
+    }
+    if (!wait) return { ok: true, connected: false, message: "not waiting" }
+    return await waitForTunnel(io, opts, home, runtimeDir)
+  }
+
+  if (!setup.install) {
+    return await startForSession("--no-service set; starting the daemon for this session only.")
+  }
+
   if (uid === 0) {
-    io.err("sensus cloud: warning: a root user service may need `loginctl enable-linger root`; a system unit is not installed automatically.")
+    io.err(
+      "sensus cloud: warning: installing a root user service. Run as a regular user when possible; root's user manager may need lingering to start it at boot.",
+    )
   }
-  const interactive = opts.interactive ?? defaultInteractive()
-  const askFn = opts.confirm ?? ((q: string, d: boolean) => ask(q, d))
-  let install = false
-  if (interactive) {
-    install = await askFn(`Install and enable the Sensus daemon service for ${user}? [Y/n] `, true)
-  } else {
-    io.out("sensus cloud: start it with `sensus daemon start` (or `sensus daemon install` for an always-on user service).")
-  }
-  if (!install) {
-    return {
-      ok: false,
-      connected: false,
-      message: `no daemon is running for ${user}; start it with \`sensus daemon start\``,
+
+  // A systemd user service stops at logout unless lingering is on. Try to turn
+  // it on before the install so the installer's own lingering check sees it.
+  if (setup.linger) {
+    const status = await (opts.linger ?? checkUserLinger)({ env })
+    if (status.applicable) {
+      if (status.enabled === true) {
+        io.out(`sensus cloud: lingering is already enabled for ${status.user}`)
+      } else {
+        const enabled = await (opts.enableLinger ?? ((input: { env: NodeJS.ProcessEnv; user: string }) => enableUserLinger(input)))({
+          env,
+          user: status.user,
+        })
+        if (enabled.ok) {
+          io.out(`sensus cloud: lingering enabled for ${status.user}`)
+        } else {
+          io.err(
+            `sensus cloud: warning: could not enable lingering for ${status.user}${enabled.detail !== null ? ` — ${enabled.detail}` : ""}.`,
+          )
+          io.err(
+            `sensus cloud: the service starts when ${status.user} logs in; run \`loginctl enable-linger ${status.user}\` as an administrator to start it at boot.`,
+          )
+        }
+      }
     }
   }
 
@@ -480,10 +594,11 @@ async function ensureDaemonService(
         runtimeDir: input.runtimeDir,
         sensusHome: input.home,
       }))
+  io.out(`sensus cloud: installing the Sensus daemon service for ${user}…`)
   const code = await installFn({ home, env, runtimeDir })
   if (code !== 0) {
-    io.err("sensus cloud: service install failed; start the daemon with `sensus daemon start` when ready.")
-    return { ok: false, connected: false, message: "service install failed" }
+    io.err("sensus cloud: could not install the daemon service; starting it for this session instead.")
+    return await startForSession("starting the daemon for this session (it will not restart after a reboot).")
   }
   io.out(`sensus cloud: installed and enabled the Sensus daemon service for ${user}`)
   // The service manager starts it asynchronously; the daemon reads
@@ -687,7 +802,7 @@ async function statusCommand(io: CloudIo, opts: CloudCliOptions, home: string, r
 }
 
 async function pairCommand(io: CloudIo, opts: CloudCliOptions, argv: readonly string[]): Promise<number> {
-  const flags = parseFlags(argv, new Set(["allow-root", "no-wait", "json"]))
+  const flags = parseFlags(argv, new Set(["allow-root", "no-wait", "no-service", "no-linger", "json"]))
   if (flags.error !== null) {
     io.err(`sensus cloud pair: ${flags.error}`)
     return 1
@@ -803,7 +918,10 @@ async function pairCommand(io: CloudIo, opts: CloudCliOptions, argv: readonly st
 
   const noWait = flags.values.get("no-wait") === true
   const wait = !noWait && result.state !== "pending"
-  const ensured = await ensureDaemonService(io, opts, home, runtimeDir, uid, wait)
+  const ensured = await ensureDaemonService(io, opts, home, runtimeDir, uid, wait, {
+    install: flags.values.get("no-service") !== true,
+    linger: flags.values.get("no-linger") !== true,
+  })
   io.out("")
   io.out("sensus cloud: pairing saved. Revoke it any time in the cloud's Fleet panel.")
   if (result.state === "pending") {

@@ -218,15 +218,30 @@ The unit path and the command runner are injectable
 invoke `systemctl`/`launchctl`. The persistent service is what makes triggers
 useful with no client attached ([`triggers.md`](triggers.md)).
 
-`sensus cloud pair` uses the same user unit when no daemon is running: it asks
-whether to install/enable the service for the user who ran the command. The
-pairing is saved first, so the daemon opens the tunnel on its next start. After
-a reload or install, pairing polls the daemon until the tunnel reports
-`connected: true` (20 s) and exits non-zero with `lastError` otherwise;
-`--no-wait` saves the pairing and returns immediately. A root pairing warns that
-a root user service may need lingering (or a manually managed system unit); it is
-never installed silently. A paired, enabled tunnel pins the daemon (no idle exit)
-even if the service is not installed.
+`sensus cloud pair` uses the same user unit. With a compatible daemon already
+running it reloads it and installs/enables a missing unit without starting a
+second daemon. With no daemon running, it installs and enables the service for
+the user who ran the command, attempts to enable lingering on Linux, and lets the
+service manager start it. If the service manager is unavailable (a container, an
+unsupported platform), it falls back to a detached `daemon start` for the current
+session. `--no-service` skips the unit (session-only start), and `--no-linger`
+skips the lingering attempt. The pairing is saved first,
+so the daemon opens the tunnel on its next start. After a reload or install,
+pairing polls the daemon until the tunnel reports `connected: true` (20 s) and
+exits non-zero with `lastError` otherwise; `--no-wait` saves the pairing and
+returns immediately. A root pairing requires the explicit root approval and then
+installs root's user service with a warning that it may need lingering (or a
+manually managed system unit); it is never installed silently. A paired, enabled
+tunnel pins the daemon (no idle exit) even if the service is not installed.
+
+Existing pairings are repaired after an update. `sensus update` (after the
+installer succeeds), every daemon boot, and the TUI boot call
+`reconcileCloudService` (`src/daemon/cloud/reconcile.ts`): when the host is
+paired/enabled and the user unit is missing, it writes/enables the unit with
+`startNow: false` (never a second daemon) and attempts lingering. The running
+daemon and its shells are left alone, and the unit takes over at the next
+login/boot. Linux hosts without a running systemd are reported as unsupported
+instead of retrying; failures never fail the update or boot.
 
 ## Setup wizard
 

@@ -86,13 +86,20 @@ sensus cloud enable
 sensus cloud unpair
 ```
 
-The command asks for the code without echoing it. If no local service is running, it offers
-to install and enable one for that user. The host connects outbound to the panel; no inbound
-port is opened. Pairing waits for the connection to come up and reports a non-zero exit with
-the real error if it does not; `--no-wait` saves the pairing and returns immediately. Running
-as root is refused unless you explicitly approve it, and the panel marks such an instance as
-root. Multiple users on one machine can each pair their own service; the panel shows them as
-separate instances.
+The command asks for the code without echoing it. If a local service is already running, it
+reloads it and repairs the always-on unit when it is missing; otherwise it installs and
+enables one for that user, turns on lingering where needed so a headless machine starts at
+boot, and waits for the connection. If the machine cannot run a service (a container, for
+example), it starts the local service for the current session and says that it will not
+restart after a reboot; `--no-service` and `--no-linger` opt out of the unit and of
+lingering. The host connects outbound to the panel; no inbound port is opened. Pairing
+waits for the connection to come up and reports a non-zero exit with the real error if it
+does not;
+`--no-wait` saves the pairing and returns immediately. Running as root is refused unless you
+explicitly approve it, and the panel marks such an instance as root. Multiple users on one
+machine can each pair their own service; the panel shows them as separate instances. If you
+paired before this behavior existed, updating sensus repairs the service automatically on
+the next update, daemon start, or boot: there is no need to pair again.
 
 `sensus cloud status` exits non-zero when the local service cannot answer or is running for a
 different user or configuration home, so a stale service does not look like a healthy pairing.
@@ -102,13 +109,6 @@ narrows to that profile; it never writes it into your local policy or configurat
 `sensus cloud doctor` separates the remaining causes — missing or mismatched identity, a
 pending or revoked token, a tunnel error, a reversed proxy that strips the WebSocket upgrade,
 and a user service that stops at logout. Add `--json` for machine-readable checks.
-
-On Linux, the always-on service is a user service. Manage it with `systemctl --user`,
-not `sudo systemctl` — the system manager cannot see a user unit. The service starts
-when that user's user manager starts; on a headless machine nobody logs in, so add
-`--linger` to `sensus daemon install` (or run `loginctl enable-linger <user>`) to start
-it at boot. If `loginctl show-user <user> -p Linger` reports `Linger=no`, install prints
-the exact command; `--linger` runs it for you.
 
 On Linux, the always-on service is a user service. Manage it with `systemctl --user`,
 not `sudo systemctl` — the system manager cannot see a user unit. The service starts

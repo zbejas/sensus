@@ -261,6 +261,32 @@ export async function checkUserLinger(opts: {
   return { applicable: true, enabled: match[1] === "yes", user, enableCommand, detail: null }
 }
 
+/** The result of a best-effort `loginctl enable-linger`. */
+export interface LingerEnableResult {
+  ok: boolean
+  /** stderr/stdout from the failed command, for a warning. */
+  detail: string | null
+}
+
+/**
+ * Enable lingering for the service account (Linux/systemd). Callers treat this
+ * as best-effort: `loginctl enable-linger` can require polkit/root authorization,
+ * so a refusal should warn and let the service install continue.
+ */
+export async function enableUserLinger(opts: {
+  env: NodeJS.ProcessEnv
+  platform?: NodeJS.Platform
+  runner?: CommandRunner
+  user?: string
+}): Promise<LingerEnableResult> {
+  const platform = opts.platform ?? process.platform
+  if (platform !== "linux") return { ok: true, detail: null }
+  const user = serviceUserName(opts.env, opts.user)
+  const res = await (opts.runner ?? realRunner).run(["loginctl", "enable-linger", user])
+  if (res.ok) return { ok: true, detail: null }
+  return { ok: false, detail: res.stderr.trim() || res.stdout.trim() || `exit ${res.code}` }
+}
+
 // ---- install / uninstall ----------------------------------------------------
 
 export interface ServiceIo {
@@ -294,6 +320,12 @@ export interface ServiceCommandOptions {
   uid?: number
   /** Override the command runner (tests) — the real one runs systemctl/launchctl. */
   runner?: CommandRunner
+  /**
+   * Start the unit after enabling it (default true). A reconciliation pass that
+   * runs while a daemon is already alive sets this false, so it writes/enables
+   * the unit without starting a second daemon.
+   */
+  startNow?: boolean
 }
 
 interface ServiceContext {
@@ -304,6 +336,8 @@ interface ServiceContext {
   dryRun: boolean
   /** Run `loginctl enable-linger` instead of only reporting it. */
   linger: boolean
+  /** Start the unit after enabling it; false only enables it for next boot/login. */
+  startNow: boolean
   user: string
   /** Installing account's uid; 0 is root. */
   uid: number | null
@@ -343,6 +377,7 @@ function resolveServiceContext(opts: ServiceCommandOptions): ServiceContextResul
     runner: opts.runner ?? realRunner,
     dryRun: (opts.argv ?? []).includes("--dry-run"),
     linger: (opts.argv ?? []).includes("--linger"),
+    startNow: opts.startNow ?? true,
     user: serviceUserName(opts.env, opts.user),
     uid: opts.uid ?? serviceUid(),
   }
@@ -355,29 +390,35 @@ interface ServiceCommand {
 }
 
 /** The commands that load/enable the unit, in order. */
-function enableCommands(kind: ServiceUnitKind, unitPath: string): ServiceCommand[] {
-  return kind === "systemd"
-    ? [
-        { argv: ["systemctl", "--user", "daemon-reload"] },
-        { argv: ["systemctl", "--user", "enable", "--now", SYSTEMD_UNIT_NAME] },
-        // `enable --now` can print success while the start job is only queued;
-        // verify the symlink is really in place so a boot without the service
-        // fails the install instead of looking healthy until reboot.
-        { argv: ["systemctl", "--user", "is-enabled", SYSTEMD_UNIT_NAME] },
-      ]
-    : [
-        // A repeat install must not fail on an already-loaded agent: unload
-        // best-effort (a not-loaded job errors), then load fresh.
-        { argv: ["launchctl", "unload", "-w", unitPath], optional: true },
-        { argv: ["launchctl", "load", "-w", unitPath] },
-      ]
+function enableCommands(kind: ServiceUnitKind, unitPath: string, startNow: boolean): ServiceCommand[] {
+  if (kind === "systemd") {
+    return [
+      { argv: ["systemctl", "--user", "daemon-reload"] },
+      {
+        argv: ["systemctl", "--user", "enable", ...(startNow ? ["--now"] : []), SYSTEMD_UNIT_NAME],
+      },
+      // `enable --now` can print success while the start job is only queued;
+      // verify the symlink is really in place so a boot without the service
+      // fails the install instead of looking healthy until reboot.
+      { argv: ["systemctl", "--user", "is-enabled", SYSTEMD_UNIT_NAME] },
+    ]
+  }
+  // A repeat install must not fail on an already-loaded agent: unload
+  // best-effort (a not-loaded job errors), then load fresh. When the caller
+  // already has a daemon alive, writing the plist is enough: a LaunchAgent is
+  // loaded at the next login, and loading it now would start a second daemon.
+  if (!startNow) return []
+  return [
+    { argv: ["launchctl", "unload", "-w", unitPath], optional: true },
+    { argv: ["launchctl", "load", "-w", unitPath] },
+  ]
 }
 
 /** The commands that unload/disable the unit, in order (before removal). */
 function disableCommands(kind: ServiceUnitKind, unitPath: string): ServiceCommand[] {
   return kind === "systemd"
     ? [{ argv: ["systemctl", "--user", "disable", "--now", SYSTEMD_UNIT_NAME] }]
-    : [{ argv: ["launchctl", "unload", "-w", unitPath] }]
+    : [{ argv: ["launchctl", "unload", "-w", unitPath], optional: true }]
 }
 
 /** The commands that refresh the manager after a unit file change. */
@@ -439,7 +480,7 @@ export async function installService(opts: ServiceCommandOptions): Promise<numbe
     opts.io.err(`sensus daemon install: cannot write ${ctx.unitPath}: ${errorMessage(e)}`)
     return 1
   }
-  if (!(await runCommands(opts.io, ctx.runner, enableCommands(ctx.kind, ctx.unitPath)))) return 1
+  if (!(await runCommands(opts.io, ctx.runner, enableCommands(ctx.kind, ctx.unitPath, ctx.startNow)))) return 1
   opts.io.out(`sensus daemon: installed ${ctx.kind === "systemd" ? "systemd user unit" : "launchd user agent"} → ${ctx.unitPath}`)
   opts.io.out(`sensus daemon: persistent mode (SENSUS_DAEMON_PERSISTENT=1); log ${ctx.spec.logPath}`)
   let lingerEnabled: boolean | null = null
@@ -479,10 +520,14 @@ export async function installService(opts: ServiceCommandOptions): Promise<numbe
     }
     // Enabled is not the same as running: `enable --now` can finish its start
     // job and the process can still exit before the next `daemon status`.
-    const active = await ctx.runner.run(["systemctl", "--user", "is-active", SYSTEMD_UNIT_NAME])
-    if (!active.ok) {
-      const state = active.stdout.trim() || active.stderr.trim() || "not active"
-      opts.io.err(`sensus daemon: warning: the unit is enabled but not running (${state}); see ${ctx.spec.logPath}`)
+    // A reconciliation install (`startNow: false`) deliberately does not start
+    // a second daemon, so this check would always warn there.
+    if (ctx.startNow) {
+      const active = await ctx.runner.run(["systemctl", "--user", "is-active", SYSTEMD_UNIT_NAME])
+      if (!active.ok) {
+        const state = active.stdout.trim() || active.stderr.trim() || "not active"
+        opts.io.err(`sensus daemon: warning: the unit is enabled but not running (${state}); see ${ctx.spec.logPath}`)
+      }
     }
   }
   if (ctx.kind === "systemd" && lingerEnabled === false) {

@@ -23,6 +23,7 @@
 
 import { Buffer } from "node:buffer"
 import { errorMessage, isRecord } from "../../core/util.ts"
+import { baseMediaType, detectImageMediaType, formatBytes, isImageMediaType } from "../../core/image.ts"
 import type { AuthPolicy } from "../../auth/policy.ts"
 import { isCwdAllowed } from "../../auth/policy.ts"
 import { hasScope } from "../../auth/scopes.ts"
@@ -71,6 +72,134 @@ export const MEMORY_READ_MAX_BYTES = 64 * 1024
 export const MEMORY_READ_MAX_ENTRIES = 200
 /** `memory.write` content byte cap (rejected, never truncated). */
 export const MEMORY_WRITE_MAX_BYTES = 64 * 1024
+/**
+ * Cloud chat image caps (protocol "chat"): the cloud upload route enforces the
+ * same numbers. The tunnel frame cap is 4 MiB, so 2.5 MiB raw (≈3.5 MiB as
+ * base64) still fits.
+ */
+export const CLOUD_CHAT_IMAGE_MAX_COUNT = 2
+export const CLOUD_CHAT_IMAGE_MAX_BYTES = 1_310_720 // 1.25 MiB
+export const CLOUD_CHAT_IMAGES_MAX_TOTAL_BYTES = 2_621_440 // 2.5 MiB
+
+/** One validated cloud chat image, in the local daemon's `chat.send` shape. */
+interface CloudChatImage {
+  name: string
+  mediaType: string
+  data: string
+}
+
+/**
+ * Decode strict, canonical base64. `Buffer.from(..., "base64")` is lenient, so
+ * a regex + re-encode check keeps a cloud frame from smuggling non-base64
+ * bytes (or a truncated payload) into the daemon.
+ */
+function decodeBase64Image(data: string): Buffer | null {
+  if (data.length === 0 || data.length % 4 !== 0) return null
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return null
+  const bytes = Buffer.from(data, "base64")
+  if (bytes.length === 0 || bytes.toString("base64") !== data) return null
+  return bytes
+}
+
+/** Validate `chat.send.images` before it reaches the local daemon. */
+function parseCloudChatImages(raw: unknown): { ok: true; images: CloudChatImage[] } | { ok: false; message: string } {
+  if (raw === undefined) return { ok: true, images: [] }
+  if (!Array.isArray(raw)) return { ok: false, message: "images must be an array" }
+  if (raw.length > CLOUD_CHAT_IMAGE_MAX_COUNT) {
+    return { ok: false, message: `at most ${CLOUD_CHAT_IMAGE_MAX_COUNT} images per message` }
+  }
+  const images: CloudChatImage[] = []
+  let total = 0
+  for (const item of raw) {
+    if (!isRecord(item)) return { ok: false, message: "each image needs name, mediaType, and data" }
+    const name = typeof item["name"] === "string" ? item["name"].trim() : ""
+    const mediaType = typeof item["mediaType"] === "string" ? baseMediaType(item["mediaType"]) : ""
+    const data = typeof item["data"] === "string" ? item["data"] : ""
+    if (name.length === 0 || mediaType.length === 0 || data.length === 0) {
+      return { ok: false, message: "each image needs name, mediaType, and data" }
+    }
+    if (!isImageMediaType(mediaType)) {
+      return { ok: false, message: "unsupported image media type (png, jpeg, webp, gif)" }
+    }
+    // Base64 expands 3 bytes to 4 chars; reject impossible sizes before decode.
+    if (data.length > Math.ceil(CLOUD_CHAT_IMAGE_MAX_BYTES / 3) * 4) {
+      return { ok: false, message: `image exceeds ${formatBytes(CLOUD_CHAT_IMAGE_MAX_BYTES)}` }
+    }
+    const bytes = decodeBase64Image(data)
+    if (bytes === null) return { ok: false, message: "image data is not valid base64" }
+    if (bytes.length > CLOUD_CHAT_IMAGE_MAX_BYTES) {
+      return { ok: false, message: `image exceeds ${formatBytes(CLOUD_CHAT_IMAGE_MAX_BYTES)}` }
+    }
+    total += bytes.length
+    if (total > CLOUD_CHAT_IMAGES_MAX_TOTAL_BYTES) {
+      return { ok: false, message: `images exceed ${formatBytes(CLOUD_CHAT_IMAGES_MAX_TOTAL_BYTES)} in total` }
+    }
+    // Sniff the bytes, not the label: the cloud's type is a hint, never proof.
+    const detected = detectImageMediaType(bytes)
+    if (detected === null || detected !== mediaType) {
+      return { ok: false, message: `image data does not match ${mediaType}` }
+    }
+    images.push({ name: name.slice(0, 200), mediaType, data })
+  }
+  return { ok: true, images }
+}
+
+/** Reduce one daemon image attachment to the cloud-facing fields (no path). */
+function cloudImageMeta(raw: unknown): Record<string, unknown> | null {
+  if (!isRecord(raw)) return null
+  const id = typeof raw["id"] === "string" && raw["id"].length > 0 ? raw["id"] : null
+  const name = typeof raw["name"] === "string" && raw["name"].length > 0 ? raw["name"] : null
+  const mediaType = typeof raw["mediaType"] === "string" ? baseMediaType(raw["mediaType"]) : ""
+  const bytes = typeof raw["bytes"] === "number" && Number.isFinite(raw["bytes"]) && raw["bytes"] >= 0 ? raw["bytes"] : null
+  if (id === null || name === null || !isImageMediaType(mediaType) || bytes === null) return null
+  const width = positiveInt(raw["width"])
+  const height = positiveInt(raw["height"])
+  return {
+    id,
+    name,
+    mediaType,
+    bytes,
+    ...(width !== null ? { width } : {}),
+    ...(height !== null ? { height } : {}),
+  }
+}
+
+/** Rewrite one message's `images` array to the cloud-safe metadata shape. */
+function boundMessageImages(message: Record<string, unknown>): boolean {
+  const images = message["images"]
+  if (!Array.isArray(images)) return false
+  const clean: Array<Record<string, unknown>> = []
+  for (const entry of images) {
+    const meta = cloudImageMeta(entry)
+    if (meta !== null) clean.push(meta)
+  }
+  if (clean.length === 0) delete message["images"]
+  else message["images"] = clean
+  return true
+}
+
+/**
+ * Strip absolute host paths from live chat image records before forwarding
+ * `chat.message`/`chat.state`/`chat.plan` to the cloud. The cloud strips them
+ * too, but a host path should never leave the host in the first place.
+ */
+function boundChatFrameImages(frame: DaemonFrame): boolean {
+  if (frame.type !== "evt") return false
+  if (frame.event === "chat.message" || frame.event === "chat.plan") {
+    const message = frame["message"]
+    return isRecord(message) ? boundMessageImages(message) : false
+  }
+  if (frame.event === "chat.state") {
+    const state = frame["state"]
+    if (!isRecord(state) || !Array.isArray(state["messages"])) return false
+    let changed = false
+    for (const message of state["messages"]) {
+      if (isRecord(message)) changed = boundMessageImages(message) || changed
+    }
+    return changed
+  }
+  return false
+}
 
 /** Chat/run stream ops the cloud may send (per chatId, see `streamSend`). */
 const CHAT_STREAM_OPS: ReadonlySet<string> = new Set([
@@ -277,6 +406,8 @@ export function daemonErrorFrame(id: string, code: string, message = code): stri
 }
 
 export class RelayBroker {
+  /** The broker validates and forwards `chat.send` images (cloud `chat.images`). */
+  readonly chatImages = true
   private readonly streams = new Map<string, StreamRecord>()
   private control: LocalDaemonLike | null = null
   private controlConnecting: Promise<LocalDaemonLike> | null = null
@@ -710,10 +841,16 @@ export class RelayBroker {
       case "chat.send": {
         const text = frame["text"]
         if (typeof text !== "string") return { ok: false, id, code: "invalid_request", message: "chat.send needs text" }
-        if (frame["images"] !== undefined) {
-          return { ok: false, id, code: "invalid_request", message: "image attachments are not part of the cloud v1 chat surface" }
+        const parsedImages = parseCloudChatImages(frame["images"])
+        if (!parsedImages.ok) return { ok: false, id, code: "invalid_request", message: parsedImages.message }
+        normalized = {
+          type: "req",
+          id,
+          op,
+          chatId,
+          text,
+          ...(parsedImages.images.length > 0 ? { images: parsedImages.images } : {}),
         }
-        normalized = { type: "req", id, op, chatId, text }
         break
       }
       case "chat.abort":
@@ -957,11 +1094,14 @@ export class RelayBroker {
       record.role = frame["role"]
     }
     this.trackChatFrame(record, frame)
+    // Image metadata is host-owned; strip the absolute `path` before it can
+    // reach the cloud, even though the cloud also sanitizes it.
+    const payload = boundChatFrameImages(frame) ? JSON.stringify(frame) : raw
     if (!record.opened) {
-      record.pending.push({ raw, frame })
+      record.pending.push({ raw: payload, frame })
       return
     }
-    this.emitFrame(record, raw)
+    this.emitFrame(record, payload)
   }
 
   private emitFrame(record: StreamRecord, raw: string): void {

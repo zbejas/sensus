@@ -6,6 +6,13 @@
 import { describe, expect, test } from "bun:test"
 import { NoopEventSink, MemoryStore } from "../../../src/engine/index.ts"
 import { createDaemonApp, type DaemonInfo } from "../../../src/daemon/index.ts"
+import {
+  CLOUD_CHAT_IMAGE_MAX_BYTES,
+  CLOUD_CHAT_IMAGE_MAX_COUNT,
+  RelayBroker,
+} from "../../../src/daemon/cloud/broker.ts"
+import type { ConnectorToCloud } from "../../../src/daemon/cloud/protocol.ts"
+import type { DaemonFrame, LocalDaemonLike } from "../../../src/daemon/cloud/daemonClient.ts"
 import { CloudTunnel, type TunnelBrokerLike } from "../../../src/daemon/cloud/tunnel.ts"
 import { generateIdentity } from "../../../src/auth/identity.ts"
 import { defaultPolicy } from "../../../src/auth/policy.ts"
@@ -55,6 +62,7 @@ const unpaired = {
   connected: false,
   state: "unpaired" as const,
   lastError: null,
+  profile: null,
 }
 
 describe("daemon cloud routes", () => {
@@ -72,6 +80,7 @@ describe("daemon cloud routes", () => {
           connected: true,
           state: "ready",
           lastError: null,
+          profile: null,
         }),
         reload: async () => unpaired,
       },
@@ -197,5 +206,168 @@ describe("cloud tunnel preflight", () => {
     await Bun.sleep(20)
     expect(tunnel.state).toBe("stopped")
     expect(stopped).toEqual(["unauthorized"])
+  })
+})
+
+const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46])
+const base64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("base64")
+
+/** A local daemon stand-in that records requests and replays chat events. */
+class FakeLocalDaemon implements LocalDaemonLike {
+  readonly clientId = "local_1"
+  readonly connected = true
+  readonly sent: string[] = []
+  private frameHandler: ((raw: string, frame: DaemonFrame) => void) | null = null
+
+  async connect(): Promise<{ clientId: string; protocol: string; version: string }> {
+    return { clientId: this.clientId, protocol: "v1", version: "9.9.9" }
+  }
+
+  async request(op: string): Promise<Record<string, unknown>> {
+    if (op === "chat.attach" || op === "chat.open") return { chatId: "chat_1", state: { messages: [] } }
+    return {}
+  }
+
+  sendRaw(raw: string): void {
+    this.sent.push(raw)
+  }
+
+  onFrame(handler: (raw: string, frame: DaemonFrame) => void): () => void {
+    this.frameHandler = handler
+    return () => {
+      this.frameHandler = null
+    }
+  }
+
+  onEvent(): () => void {
+    return () => {}
+  }
+
+  onClose(): () => void {
+    return () => {}
+  }
+
+  close(): void {}
+
+  emit(frame: DaemonFrame): void {
+    this.frameHandler?.(JSON.stringify(frame), frame)
+  }
+}
+
+async function chatImageHarness(): Promise<{ broker: RelayBroker; client: FakeLocalDaemon; emitted: ConnectorToCloud[] }> {
+  const client = new FakeLocalDaemon()
+  const emitted: ConnectorToCloud[] = []
+  const broker = new RelayBroker({
+    policy: { ...defaultPolicy(), scopes: ["view", "chat"] },
+    discover: async () => ({ ok: false, code: "daemon_socket_missing", message: "not running", state: "stopped" }),
+    dataDir: "/nonexistent-cloud-images",
+    clientFactory: () => client,
+  })
+  const opened = await broker.openStream("stream-1", "chat", { chatId: "chat_1" }, (frame) => emitted.push(frame))
+  expect(opened.ok).toBe(true)
+  return { broker, client, emitted }
+}
+
+function sendImages(broker: RelayBroker, images: unknown, text = "look"): ReturnType<RelayBroker["streamSend"]> {
+  return broker.streamSend(
+    "stream-1",
+    JSON.stringify({ type: "req", id: "r1", op: "chat.send", chatId: "chat_1", text, images }),
+  )
+}
+
+function forwarded(broker: RelayBroker, client: FakeLocalDaemon): Record<string, unknown> {
+  const sent = client.sent.at(-1)
+  expect(sent).toBeDefined()
+  return JSON.parse(sent!) as Record<string, unknown>
+}
+
+describe("cloud chat images", () => {
+  test("validates and forwards png/jpeg images to the local daemon", async () => {
+    const { broker, client } = await chatImageHarness()
+    const images = [
+      { name: "a.png", mediaType: "image/png", data: base64(PNG) },
+      { name: "b.jpg", mediaType: "image/jpeg", data: base64(JPEG) },
+    ]
+    expect(sendImages(broker, images)).toEqual({ ok: true })
+    const frame = forwarded(broker, client)
+    expect(frame).toMatchObject({ type: "req", id: "r1", op: "chat.send", chatId: "chat_1", text: "look" })
+    expect(frame["images"]).toEqual(images)
+  })
+
+  test("omits an empty images array and still accepts a text-only send", async () => {
+    const { broker, client } = await chatImageHarness()
+    expect(sendImages(broker, [])).toEqual({ ok: true })
+    expect(Object.hasOwn(forwarded(broker, client), "images")).toBe(false)
+  })
+
+  test("rejects malformed, oversized, and mismatched images without forwarding", async () => {
+    const { broker, client } = await chatImageHarness()
+    const png = base64(PNG)
+    const tooMany = Array.from({ length: CLOUD_CHAT_IMAGE_MAX_COUNT + 1 }, (_, i) => ({
+      name: `${i}.png`,
+      mediaType: "image/png",
+      data: png,
+    }))
+    const oversized = Buffer.alloc(CLOUD_CHAT_IMAGE_MAX_BYTES + 1)
+    oversized.set(PNG)
+    const cases: unknown[] = [
+      "not-an-array",
+      tooMany,
+      [{ name: "", mediaType: "image/png", data: png }],
+      [{ name: "a.png", mediaType: "image/svg+xml", data: png }],
+      [{ name: "a.png", mediaType: "image/png", data: "not base64" }],
+      [{ name: "a.png", mediaType: "image/png", data: "AAAA" }],
+      [{ name: "a.png", mediaType: "image/png", data: base64(JPEG) }],
+      [{ name: "big.png", mediaType: "image/png", data: Buffer.from(oversized).toString("base64") }],
+    ]
+    for (const images of cases) {
+      expect(sendImages(broker, images)).toMatchObject({ ok: false, code: "invalid_request" })
+    }
+    expect(client.sent).toHaveLength(0)
+  })
+
+  test("strips host paths from chat.message and chat.state image records", async () => {
+    const { client, emitted } = await chatImageHarness()
+    const images = [
+      {
+        id: "abc123",
+        name: "shot.png",
+        mediaType: "image/png",
+        bytes: 8,
+        path: "/home/tester/.config/sensus/assets/abc123.png",
+        width: 640,
+        height: 480,
+        private: "drop-me",
+      },
+    ]
+    client.emit({
+      type: "evt",
+      event: "chat.message",
+      chatId: "chat_1",
+      message: { id: 1, role: "user", content: "hi", ts: 1, images },
+    })
+    client.emit({
+      type: "evt",
+      event: "chat.state",
+      chatId: "chat_1",
+      state: { messages: [{ id: 1, role: "user", content: "hi", ts: 1, images }], status: "idle" },
+    })
+    // A non-image path (tool args) must survive: only image records are bounded.
+    client.emit({
+      type: "evt",
+      event: "chat.message",
+      chatId: "chat_1",
+      message: { id: 2, role: "tool", content: "", ts: 2, tool: { name: "read_file", args: { path: "/tmp/notes.md" } } },
+    })
+    const frames = emitted.filter((frame) => frame.t === "stream.frame") as Array<Extract<ConnectorToCloud, { t: "stream.frame" }>>
+    const payloads = frames.map((frame) => JSON.parse(frame.data) as Record<string, unknown>)
+    const message = payloads[0]?.["message"] as Record<string, unknown>
+    expect(message["images"]).toEqual([{ id: "abc123", name: "shot.png", mediaType: "image/png", bytes: 8, width: 640, height: 480 }])
+    const state = payloads[1]?.["state"] as { messages: Array<Record<string, unknown>> }
+    expect(state.messages[0]?.["images"]).toEqual([{ id: "abc123", name: "shot.png", mediaType: "image/png", bytes: 8, width: 640, height: 480 }])
+    const tool = payloads[2]?.["message"] as { tool: { args: { path: string } } }
+    expect(tool.tool.args.path).toBe("/tmp/notes.md")
+    expect(JSON.stringify(payloads)).not.toContain("/home/tester")
   })
 })

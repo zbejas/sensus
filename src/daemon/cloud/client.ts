@@ -9,18 +9,28 @@
 
 import { componentLogger } from "../log.ts"
 import type { Logger } from "../../core/log.ts"
+import { errorMessage } from "../../core/util.ts"
 import { sensusDataDir, sensusHomeFrom } from "../../config/config/paths.ts"
 import type { EventSink, MemoryStore } from "../../engine/index.ts"
 import { readIdentity } from "../../auth/identity.ts"
-import { readPolicy } from "../../auth/policy.ts"
+import { readPolicy, type AuthPolicy } from "../../auth/policy.ts"
 import { discoverDaemon, type DiscoveryResult } from "./discovery.ts"
 import { cleanupLeftoverRuns, forgetRun, recordRun } from "./cleanup.ts"
 import { RelayBroker } from "./broker.ts"
 import { CloudTunnel, type TunnelState } from "./tunnel.ts"
 import { readCloudConnection, hostFacts, type CloudConnection } from "./state.ts"
+import {
+  fetchConnectorConfig,
+  intersectConnectorProfile,
+  type ConnectorConfigProfile,
+  type FetchLike,
+} from "./pairing.ts"
 import { cloudDir, resolveRuntimeDir } from "./paths.ts"
 
 const log: Logger = componentLogger("daemon.cloud")
+
+/** Minimum gap between background profile pulls triggered by `status()`. */
+const PROFILE_REFRESH_MS = 60_000
 
 export interface CloudStatus {
   paired: boolean
@@ -33,6 +43,8 @@ export interface CloudStatus {
   connected: boolean
   state: TunnelState | "unpaired" | "disabled" | "error"
   lastError: string | null
+  /** The assigned cloud config profile, narrowed to the local policy. */
+  profile: ConnectorConfigProfile | null
 }
 
 export interface CloudClientOptions {
@@ -54,6 +66,8 @@ export interface CloudClientOptions {
   events?: EventSink
   /** Test seam: fake broker/tunnel discovery. */
   discover?: () => Promise<DiscoveryResult>
+  /** Test seam: the HTTP fetch used for the optional config-profile pull. */
+  fetchImpl?: FetchLike
   /** Test seam: do not create the real tunnel in unit tests. */
   startTunnel?: boolean
 }
@@ -82,6 +96,10 @@ class EmbeddedCloudClient implements CloudClient {
   private terminalStop = false
   private started = false
   private canConnect = false
+  private profile: ConnectorConfigProfile | null = null
+  private profileFetchedAt: number | null = null
+  private profileFetch: Promise<void> | null = null
+  private policy: AuthPolicy | null = null
 
   constructor(private readonly opts: CloudClientOptions) {
     this.home = opts.home ?? sensusHomeFrom(opts.env ?? process.env)
@@ -131,6 +149,7 @@ class EmbeddedCloudClient implements CloudClient {
       return
     }
     this.canConnect = true
+    this.policy = policy.policy
 
     const broker = new RelayBroker({
       policy: policy.policy,
@@ -173,6 +192,9 @@ class EmbeddedCloudClient implements CloudClient {
         this.tunnelState = state
         if (state === "ready") this.lastError = null
       },
+      onReady: () => {
+        void this.refreshProfile()
+      },
       onStopped: (reason) => {
         this.tunnelState = "stopped"
         if (reason === "revoked" || reason === "unauthorized" || reason === "unsupported_protocol") {
@@ -191,6 +213,49 @@ class EmbeddedCloudClient implements CloudClient {
       root: read.connection.runsAsRoot,
       home: cloudDir(this.home),
     })
+  }
+
+  /**
+   * Best-effort read of the assigned cloud config profile. A profile is
+   * display/narrowing metadata only: it never writes `policy.json` or Sensus
+   * config, and a failed pull keeps the last cached value. The `updatedAt`
+   * timestamp is the cache version (and what status shows).
+   */
+  private async refreshProfile(): Promise<void> {
+    const connection = this.connection
+    if (connection === null || !connection.enabled) return
+    if (this.profileFetch !== null) return this.profileFetch
+    this.profileFetch = (async () => {
+      const res = await fetchConnectorConfig(connection, {
+        ...(this.opts.fetchImpl !== undefined ? { fetchImpl: this.opts.fetchImpl } : {}),
+      })
+      if (!res.ok) {
+        log.debug("cloud config profile pull failed", { err: res.error, status: res.status })
+        return
+      }
+      if (res.profile === null) {
+        this.profile = null
+        return
+      }
+      const localScopes = this.policy?.scopes ?? connection.scopes
+      const localMaxStreams = this.policy?.maxStreams
+      const narrowed = intersectConnectorProfile(res.profile, localScopes, localMaxStreams)
+      this.profile = narrowed
+      log.info("cloud config profile assigned", {
+        id: narrowed.id,
+        name: narrowed.name,
+        updatedAt: narrowed.updatedAt,
+        scopes: narrowed.scopes,
+      })
+    })()
+      .catch((e: unknown) => {
+        log.debug("cloud config profile pull threw", { err: errorMessage(e) })
+      })
+      .finally(() => {
+        this.profileFetch = null
+        this.profileFetchedAt = Date.now()
+      })
+    return this.profileFetch
   }
 
   private report(level: "info" | "warn" | "error", message: string): void {
@@ -213,6 +278,8 @@ class EmbeddedCloudClient implements CloudClient {
     this.canConnect = false
     this.lastError = null
     this.tunnelState = "idle"
+    this.profile = null
+    this.profileFetchedAt = null
     await this.connect()
     return this.status()
   }
@@ -231,6 +298,15 @@ class EmbeddedCloudClient implements CloudClient {
         connected: false,
         state: this.lastError !== null ? "error" : "unpaired",
         lastError: this.lastError,
+        profile: null,
+      }
+    }
+    // A status read is a natural refresh point: kick a background pull at most
+    // once a minute and return the cached profile immediately.
+    if (this.tunnel?.state === "ready" && !this.profileFetch) {
+      const now = Date.now()
+      if (this.profileFetchedAt === null || now - this.profileFetchedAt >= PROFILE_REFRESH_MS) {
+        void this.refreshProfile()
       }
     }
     return {
@@ -244,6 +320,7 @@ class EmbeddedCloudClient implements CloudClient {
       connected: this.tunnel?.state === "ready",
       state: !connection.enabled ? "disabled" : this.tunnel !== null ? this.tunnel.state : this.tunnelState,
       lastError: this.lastError,
+      profile: this.profile,
     }
   }
 
@@ -269,6 +346,7 @@ export function createCloudClient(opts: CloudClientOptions): CloudClient {
         connected: false,
         state: "unpaired",
         lastError: null,
+        profile: null,
       }),
       status: () => ({
         paired: false,
@@ -281,6 +359,7 @@ export function createCloudClient(opts: CloudClientOptions): CloudClient {
         connected: false,
         state: "unpaired",
         lastError: null,
+        profile: null,
       }),
       pinned: () => false,
     }

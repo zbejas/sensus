@@ -38,6 +38,8 @@ export interface TunnelBrokerLike {
   closeStream(streamId: string, reason?: string): Promise<boolean>
   closeAll(reason?: string): Promise<void>
   daemonFacts(): Promise<DaemonFacts>
+  /** True when the broker validates and forwards `chat.send` image payloads. */
+  readonly chatImages?: boolean
   /** Optional: adopt the cloud's (never larger) stream budget. */
   setMaxStreams?(value: number): void
 }
@@ -340,6 +342,8 @@ export class CloudTunnel {
         if (this.phase !== "auth.ok") return
         const daemon = await this.opts.broker.daemonFacts().catch(() => ({ state: "unreachable" as const }))
         const features: string[] = ["terminal.facts", "terminal.handover", "transcript.read", "memory.read", "memory.write"]
+        // Only advertise the image surface when this broker actually accepts it.
+        if (this.opts.broker.chatImages === true) features.push("chat.images")
         // Deletion is permanently destructive and off unless the host opted in.
         if (this.opts.policy.deleteTranscripts === true) features.push("transcript.delete")
         this.send(

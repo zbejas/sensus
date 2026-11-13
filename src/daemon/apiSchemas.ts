@@ -92,7 +92,21 @@ export const memoryTargetSchema = t.Union([t.Literal("memory"), t.Literal("host"
 
 // ── Core ────────────────────────────────────────────────────────────────────
 
-/** Embedded cloud tunnel state (docs/cloud.md). */
+/** The optional cloud config profile pulled by the host (docs/auth.md "Cloud config profiles"). */
+export const connectorConfigProfileSchema = t.Object(
+  {
+    id: t.String(),
+    name: t.String(),
+    updatedAt: t.Integer({ description: "Cloud profile version (epoch ms); the host caches by this value." }),
+    scopes: t.Array(t.String(), { description: "Cloud-effective scopes, intersected with the local policy." }),
+    deniedFeatures: t.Array(t.String(), { description: "Features hidden by the cloud profile." }),
+    chatApproval: t.String({ description: "inherit | confirm" }),
+    conductorApprovals: t.String({ description: "inherit | off | no-destructive" }),
+    maxStreams: t.Union([t.Integer(), t.Null()], { description: "Cloud-narrowed stream ceiling; null = no profile limit." }),
+  },
+  { description: "The read-only cloud config profile assigned to this host (narrowing-only)." },
+)
+
 export const cloudStatusSchema = t.Object(
   {
     paired: t.Boolean({ description: "True when a local connection.json exists and is readable." }),
@@ -105,6 +119,7 @@ export const cloudStatusSchema = t.Object(
     connected: t.Boolean({ description: "True when the outbound tunnel is in the ready state." }),
     state: t.String({ description: "Tunnel state: unpaired | disabled | error | idle | connecting | handshaking | ready | reconnecting | stopped." }),
     lastError: t.Union([t.String(), t.Null()]),
+    profile: t.Union([connectorConfigProfileSchema, t.Null()], { description: "The assigned cloud config profile (null when none, or not pulled yet)." }),
   },
   { description: "The daemon's view of the paired cloud tunnel; never contains the device token or private key." },
 )

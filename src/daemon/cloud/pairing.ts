@@ -20,6 +20,7 @@ import {
   type CloudConnection,
 } from "./state.ts"
 import { normalizeScopeArray, type HostFacts, type Scope } from "./protocol.ts"
+import { MAX_STREAMS } from "../../auth/scopes.ts"
 
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
@@ -100,6 +101,149 @@ export async function whoami(
     return { ok: false, status: res.status, state: null, scopes: [], error: "invalid whoami response" }
   }
   return { ok: true, status: res.status, state, scopes: normalizeScopeArray(res.body?.["scopes"]) ?? [], error: null }
+}
+
+/** Features a cloud config profile may deny (protocol "Cloud config profiles"). */
+export const CONNECTOR_CONFIG_FEATURES = ["transcript.read", "transcript.delete", "memory.read", "memory.write"] as const
+export type ConnectorConfigFeature = (typeof CONNECTOR_CONFIG_FEATURES)[number]
+export type ConnectorChatApproval = "inherit" | "confirm"
+export type ConnectorConductorApproval = "inherit" | "off" | "no-destructive"
+
+/** The read-only profile returned by `GET /api/connector/config`. */
+export interface ConnectorConfigProfile {
+  id: string
+  name: string
+  updatedAt: number
+  scopes: Scope[]
+  deniedFeatures: ConnectorConfigFeature[]
+  chatApproval: ConnectorChatApproval
+  conductorApprovals: ConnectorConductorApproval
+  maxStreams: number | null
+}
+
+export interface ConnectorConfigResult {
+  ok: boolean
+  status: number
+  profile: ConnectorConfigProfile | null
+  /** Pull-contract version when the response was well formed. */
+  version: number | null
+  error: string | null
+}
+
+const CONFIG_FEATURE_SET = new Set<string>(CONNECTOR_CONFIG_FEATURES)
+const CHAT_APPROVALS = new Set<string>(["inherit", "confirm"])
+const CONDUCTOR_APPROVALS = new Set<string>(["inherit", "off", "no-destructive"])
+
+/**
+ * Strict parse of one profile object. Unknown fields are ignored (the cloud may
+ * add fields), but a wrong type invalidates the profile rather than silently
+ * falling back to a wider default. `null` means "unusable payload".
+ */
+export function parseConnectorConfigProfile(raw: unknown): ConnectorConfigProfile | null {
+  if (!isRecord(raw)) return null
+  const id = typeof raw["id"] === "string" && raw["id"].length > 0 ? raw["id"] : null
+  const name = typeof raw["name"] === "string" ? raw["name"] : null
+  const updatedAt = typeof raw["updatedAt"] === "number" && Number.isFinite(raw["updatedAt"]) && raw["updatedAt"] >= 0 ? raw["updatedAt"] : null
+  const scopes = normalizeScopeArray(raw["scopes"])
+  if (id === null || name === null || updatedAt === null || scopes === null) return null
+  const deniedFeatures: ConnectorConfigFeature[] = []
+  if (raw["deniedFeatures"] !== undefined) {
+    if (!Array.isArray(raw["deniedFeatures"])) return null
+    for (const item of raw["deniedFeatures"]) {
+      if (typeof item !== "string" || !CONFIG_FEATURE_SET.has(item)) return null
+      if (!deniedFeatures.includes(item as ConnectorConfigFeature)) deniedFeatures.push(item as ConnectorConfigFeature)
+    }
+  }
+  const chatApproval = raw["chatApproval"] ?? "inherit"
+  const conductorApprovals = raw["conductorApprovals"] ?? "inherit"
+  if (typeof chatApproval !== "string" || !CHAT_APPROVALS.has(chatApproval)) return null
+  if (typeof conductorApprovals !== "string" || !CONDUCTOR_APPROVALS.has(conductorApprovals)) return null
+  const rawMax = raw["maxStreams"]
+  const maxStreams =
+    rawMax === null || rawMax === undefined
+      ? null
+      : typeof rawMax === "number" && Number.isInteger(rawMax) && rawMax >= 1 && rawMax <= MAX_STREAMS
+        ? rawMax
+        : null
+  if (rawMax !== null && rawMax !== undefined && maxStreams === null) return null
+  return {
+    id,
+    name,
+    updatedAt,
+    scopes,
+    deniedFeatures,
+    chatApproval: chatApproval as ConnectorChatApproval,
+    conductorApprovals: conductorApprovals as ConnectorConductorApproval,
+    maxStreams,
+  }
+}
+
+/**
+ * The host may only narrow. Intersect the cloud's effective scopes with the
+ * local policy and clamp its stream ceiling, so a broken or malicious cloud
+ * response can never widen what the host itself would allow.
+ */
+export function intersectConnectorProfile(
+  profile: ConnectorConfigProfile,
+  localScopes: readonly Scope[],
+  localMaxStreams?: number,
+): ConnectorConfigProfile {
+  const allowed = new Set(localScopes)
+  const scopes = profile.scopes.filter((scope) => allowed.has(scope))
+  const maxStreams =
+    profile.maxStreams === null || localMaxStreams === undefined
+      ? profile.maxStreams
+      : Math.min(profile.maxStreams, Math.max(1, Math.floor(localMaxStreams)))
+  return { ...profile, scopes, maxStreams }
+}
+
+/**
+ * Pull the assigned config profile. A profile is optional: `profile: null`
+ * means none is assigned. Auth/transport/version failures return `ok:false`
+ * with `profile:null`; callers keep their last cached value and never treat a
+ * failed pull as an empty profile.
+ */
+export async function fetchConnectorConfig(
+  connection: Pick<CloudConnection, "cloud" | "instanceId" | "deviceToken">,
+  opts: { fetchImpl?: FetchLike; timeoutMs?: number } = {},
+): Promise<ConnectorConfigResult> {
+  const res = await fetchJson(
+    cloudApiUrl(connection.cloud, "/api/connector/config"),
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${connection.deviceToken}`,
+        "X-Sensus-Instance": connection.instanceId,
+        accept: "application/json",
+      },
+    },
+    opts.fetchImpl ?? fetch,
+    opts.timeoutMs ?? 10_000,
+  )
+  if (res.error !== null) return { ok: false, status: res.status, profile: null, version: null, error: res.error }
+  if (!res.ok) {
+    return { ok: false, status: res.status, profile: null, version: null, error: errorCode(res.body) ?? `HTTP ${res.status}` }
+  }
+  if (res.body === null || res.body["version"] !== 1) {
+    const version = res.body?.["version"]
+    return {
+      ok: false,
+      status: res.status,
+      profile: null,
+      version: typeof version === "number" ? version : null,
+      error: `unsupported config pull version ${JSON.stringify(version)}`,
+    }
+  }
+  if (!Object.hasOwn(res.body, "profile")) {
+    return { ok: false, status: res.status, profile: null, version: 1, error: "invalid config pull response" }
+  }
+  const rawProfile = res.body["profile"]
+  if (rawProfile === null) return { ok: true, status: res.status, profile: null, version: 1, error: null }
+  const profile = parseConnectorConfigProfile(rawProfile)
+  if (profile === null) {
+    return { ok: false, status: res.status, profile: null, version: 1, error: "invalid config profile payload" }
+  }
+  return { ok: true, status: res.status, profile, version: 1, error: null }
 }
 
 export interface PollWhoamiOptions {

@@ -13,8 +13,15 @@
  */
 
 import { Elysia, t } from "elysia"
-import { getLogger } from "../core/log.ts"
 import type { EventSink, MemoryResult, MemoryStore, MemoryTarget, MemoryUsage } from "../engine/index.ts"
+import {
+  MEMORY_ACTIONS,
+  MEMORY_TARGETS,
+  emitMemoryWrite,
+  isMemoryAction,
+  isMemoryTarget,
+  type DaemonMemoryAction,
+} from "./memoryContract.ts"
 import {
   invalidRequestResponse,
   jsonResponse,
@@ -26,27 +33,14 @@ import {
   unauthorizedResponse,
 } from "./apiSchemas.ts"
 
-/** The three stores, in display order. */
-export const MEMORY_TARGETS = ["memory", "host", "journal"] as const
-
-/** The mutating actions the local API accepts (reads are the `GET` routes). */
-export const MEMORY_ACTIONS = ["add", "replace", "remove", "rewrite", "prune"] as const
-
-export type DaemonMemoryAction = (typeof MEMORY_ACTIONS)[number]
+export { MEMORY_ACTIONS, MEMORY_TARGETS, isMemoryAction, isMemoryTarget }
+export type { DaemonMemoryAction }
 
 export interface MemoryRoutesDeps {
   /** Built per request so a config reload is picked up (never cached here). */
   store: () => MemoryStore
   /** Audit sink; the daemon emits committed writes through it. */
   events: EventSink
-}
-
-export function isMemoryTarget(value: unknown): value is MemoryTarget {
-  return typeof value === "string" && (MEMORY_TARGETS as readonly string[]).includes(value)
-}
-
-export function isMemoryAction(value: unknown): value is DaemonMemoryAction {
-  return typeof value === "string" && (MEMORY_ACTIONS as readonly string[]).includes(value)
 }
 
 function asString(value: unknown): string | undefined {
@@ -64,24 +58,7 @@ function invalid(set: { status?: number | string }): { error: string } {
 
 /** `memory-write` for a committed store write; only emitted on `{ok:true, write}`. */
 function emitWrite(deps: MemoryRoutesDeps, result: MemoryResult): void {
-  const write = result.write
-  if (!result.ok || write === undefined) return
-  try {
-    deps.events.emit({
-      type: "memory-write",
-      ts: Date.now(),
-      session: "daemon",
-      target: write.target,
-      action: write.action,
-      beforeChars: write.beforeChars,
-      afterChars: write.afterChars,
-      delta: write.delta,
-      ok: true,
-    })
-  } catch (err) {
-    // A sink must never break the action it records.
-    getLogger().child({ component: "daemon.memory" }).warn("memory-write event emit failed", { err, target: write.target })
-  }
+  emitMemoryWrite(deps.events, result)
 }
 
 /** Mount the memory routes (auth is applied globally by the parent app). */

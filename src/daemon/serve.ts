@@ -467,7 +467,17 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
   const cloud =
     opts.cloud ??
     (opts.startCloud === true
-      ? createCloudClient({ home: homeDir, runtimeDir, version: SENSUS_VERSION })
+      ? createCloudClient({
+          home: homeDir,
+          runtimeDir,
+          version: SENSUS_VERSION,
+          dataDir,
+          events,
+          memoryStore,
+          contextForSession: (path) => chats.sessionContextBreakdown(path),
+          isSessionOpen: (path) => chats.isSessionOpen(path),
+          deleteSession: (path) => chats.deleteSession(path),
+        })
       : createCloudClient({ startTunnel: false, version: SENSUS_VERSION }))
 
   const app = createDaemonApp({

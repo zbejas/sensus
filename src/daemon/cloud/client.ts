@@ -9,7 +9,8 @@
 
 import { componentLogger } from "../log.ts"
 import type { Logger } from "../../core/log.ts"
-import { sensusHomeFrom } from "../../config/config/paths.ts"
+import { sensusDataDir, sensusHomeFrom } from "../../config/config/paths.ts"
+import type { EventSink, MemoryStore } from "../../engine/index.ts"
 import { readIdentity } from "../../auth/identity.ts"
 import { readPolicy } from "../../auth/policy.ts"
 import { discoverDaemon, type DiscoveryResult } from "./discovery.ts"
@@ -39,6 +40,18 @@ export interface CloudClientOptions {
   runtimeDir?: string
   env?: NodeJS.ProcessEnv
   version: string
+  /** Sessions data dir (`sensusDataDir()`); transcript ops read it in-process. */
+  dataDir?: string
+  /** Saved-session Context Inspector snapshot (the daemon's `chats`). */
+  contextForSession?: (path: string) => { title: string; breakdown: unknown } | null
+  /** True when a live chat still appends to a transcript path. */
+  isSessionOpen?: (path: string) => boolean
+  /** Delete a transcript through the engine (JSONL + sidecar + FTS rows). */
+  deleteSession?: (path: string) => { ok: boolean; message?: string }
+  /** Per-call memory store (the same store the REST route uses). */
+  memoryStore?: () => MemoryStore
+  /** Audit sink for a committed `memory.write` (`memory-write`). */
+  events?: EventSink
   /** Test seam: fake broker/tunnel discovery. */
   discover?: () => Promise<DiscoveryResult>
   /** Test seam: do not create the real tunnel in unit tests. */
@@ -122,6 +135,12 @@ class EmbeddedCloudClient implements CloudClient {
     const broker = new RelayBroker({
       policy: policy.policy,
       discover: () => this.discover(),
+      dataDir: this.opts.dataDir ?? sensusDataDir(),
+      ...(this.opts.contextForSession !== undefined ? { contextForSession: this.opts.contextForSession } : {}),
+      ...(this.opts.isSessionOpen !== undefined ? { isSessionOpen: this.opts.isSessionOpen } : {}),
+      ...(this.opts.deleteSession !== undefined ? { deleteSession: this.opts.deleteSession } : {}),
+      ...(this.opts.memoryStore !== undefined ? { memoryStore: this.opts.memoryStore } : {}),
+      ...(this.opts.events !== undefined ? { events: this.opts.events } : {}),
       recordRun: (record) => recordRun(this.home, record),
       forgetRun: (streamId) => forgetRun(this.home, streamId),
       startDaemon: async () => true,

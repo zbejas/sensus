@@ -339,7 +339,9 @@ export class CloudTunnel {
       case "auth.ok": {
         if (this.phase !== "auth.ok") return
         const daemon = await this.opts.broker.daemonFacts().catch(() => ({ state: "unreachable" as const }))
-        const features: string[] = ["terminal.facts", "terminal.handover"]
+        const features: string[] = ["terminal.facts", "terminal.handover", "transcript.read", "memory.read", "memory.write"]
+        // Deletion is permanently destructive and off unless the host opted in.
+        if (this.opts.policy.deleteTranscripts === true) features.push("transcript.delete")
         this.send(
           {
             t: "hello",

@@ -368,6 +368,45 @@ describe("sensus cloud pair", () => {
     expect(bad.err.join("\n")).toContain("unknown scope")
   })
 
+  test("scopes --delete-transcripts toggles the destructive opt-in and warns about permanence", async () => {
+    const home = tempHome()
+    const { io } = capture()
+    const { fetchImpl } = fakeFetch()
+    await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--allow", "view,control", "--no-wait"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, { fetchImpl }),
+    )
+
+    const shown = capture()
+    expect(await runCloud(["scopes"], shown.io, { HOME: home, SENSUS_HOME: home }, baseOpts(home, 1000))).toBe(0)
+    expect(shown.out.join("\n")).toContain("delete transcripts off")
+
+    const on = capture()
+    expect(
+      await runCloud(["scopes", "--delete-transcripts", "on"], on.io, { HOME: home, SENSUS_HOME: home }, baseOpts(home, 1000)),
+    ).toBe(0)
+    const enabled = JSON.parse(readFileSync(join(home, "auth", "policy.json"), "utf8"))
+    expect(enabled.deleteTranscripts).toBe(true)
+    expect(enabled.scopes).toEqual(["view", "control"])
+    expect(on.out.join("\n")).toContain("delete transcripts on")
+    expect(on.err.join("\n")).toContain("permanent")
+    expect(on.err.join("\n")).toContain("no trash")
+
+    const off = capture()
+    expect(
+      await runCloud(["scopes", "--delete-transcripts", "off"], off.io, { HOME: home, SENSUS_HOME: home }, baseOpts(home, 1000)),
+    ).toBe(0)
+    expect(JSON.parse(readFileSync(join(home, "auth", "policy.json"), "utf8")).deleteTranscripts).toBe(false)
+
+    const bad = capture()
+    expect(
+      await runCloud(["scopes", "--delete-transcripts", "maybe"], bad.io, { HOME: home, SENSUS_HOME: home }, baseOpts(home, 1000)),
+    ).toBe(1)
+    expect(bad.err.join("\n")).toContain("on` or `off")
+  })
+
   test("status is machine-readable when unpaired and after pairing", async () => {
     const home = tempHome()
     const unpaired = capture()

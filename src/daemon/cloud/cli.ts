@@ -89,7 +89,7 @@ const USAGE = `sensus cloud — pair this host with a Sensus Cloud panel
 
 Usage:
   sensus cloud pair --cloud <url> [--code <CODE>] [--allow <scopes>] [--allow-root] [--no-wait]
-  sensus cloud scopes [--allow <scopes>] [--allow-root] [--json]
+  sensus cloud scopes [--allow <scopes>] [--delete-transcripts on|off] [--allow-root] [--json]
   sensus cloud status [--json]
   sensus cloud doctor [--json]
   sensus cloud disable | enable
@@ -107,6 +107,9 @@ systemd lingering.
 
 Scopes: view, chat, control, orchestrator.
 Interactive pairing lists them and asks which to grant; the default is view,chat,control.
+Deletion: --delete-transcripts on allows the cloud to delete transcripts (needs
+the control scope too). Deleted transcripts are removed permanently with no
+trash and disappear from search; off by default.
 Root: pairing as root is refused unless --allow-root (or an interactive yes).
 Run as the Unix user whose daemon should be controlled.
 `
@@ -580,35 +583,60 @@ async function scopesCommand(
     return 1
   }
   const allowRaw = stringFlag(flags.values, "allow")
-  if (allowRaw === undefined) {
+  const deleteRaw = stringFlag(flags.values, "delete-transcripts")
+  if (allowRaw === undefined && deleteRaw === undefined) {
     if (flags.values.get("json") === true) {
       io.out(JSON.stringify(read.policy, null, 2))
     } else {
       io.out(`sensus cloud: scopes      ${read.policy.scopes.join(",")}`)
       io.out(`sensus cloud: allowed cwd ${read.policy.allowedCwd.length > 0 ? read.policy.allowedCwd.join(", ") : "(none)"}`)
       io.out(`sensus cloud: start daemon ${read.policy.startDaemon ? "yes" : "no"}`)
+      io.out(
+        `sensus cloud: delete transcripts ${read.policy.deleteTranscripts ? "on (permanent, no trash)" : "off"}`,
+      )
       if (!read.existed) io.out("sensus cloud: policy is the default (view only)")
     }
     return 0
   }
-  const parsed = parseScopeList(allowRaw)
-  if (!parsed.ok) {
-    io.err(`sensus cloud scopes: ${parsed.error}`)
-    return 1
+
+  let next = read.policy
+  if (allowRaw !== undefined) {
+    const parsed = parseScopeList(allowRaw)
+    if (!parsed.ok) {
+      io.err(`sensus cloud scopes: ${parsed.error}`)
+      return 1
+    }
+    next = { ...next, scopes: parsed.scopes }
   }
+  let deleteEnabled: boolean | null = null
+  if (deleteRaw !== undefined) {
+    const value = deleteRaw.trim().toLowerCase()
+    if (value !== "on" && value !== "off") {
+      io.err("sensus cloud scopes: --delete-transcripts wants `on` or `off`")
+      return 1
+    }
+    deleteEnabled = value === "on"
+    next = { ...next, deleteTranscripts: deleteEnabled }
+  }
+
   const uid = opts.uid ?? safeUid() ?? -1
   const env = opts.env ?? process.env
   const allowRoot = flags.values.get("allow-root") === true
   const approvedRoot = await confirmRoot(io, uid, allowRoot, opts.interactive ?? defaultInteractive(), opts.confirm)
   if (uid === 0 && !approvedRoot) return 1
-  const written = writePolicy(home, { ...read.policy, scopes: parsed.scopes }, { uid, allowRoot: approvedRoot })
+  const written = writePolicy(home, next, { uid, allowRoot: approvedRoot })
   if (!written.ok) {
     io.err(`sensus cloud scopes: ${written.error}`)
     return 1
   }
-  io.out(`sensus cloud: scopes ${parsed.scopes.join(",")}`)
+  io.out(`sensus cloud: scopes ${next.scopes.join(",")}`)
+  if (deleteEnabled !== null) io.out(`sensus cloud: delete transcripts ${deleteEnabled ? "on" : "off"}`)
+  if (deleteEnabled === true) {
+    io.err("sensus cloud: warning: transcript deletion is permanent — deleted transcripts are removed with no trash")
+    io.err("sensus cloud:          and cannot be recovered; they also disappear from session search.")
+  }
   if (await reloadDaemon(io, opts, home, runtimeDir)) io.out("sensus cloud: daemon reloaded")
-  else io.out("sensus cloud: the daemon will load the new scopes on its next start")
+  else io.out("sensus cloud: the daemon will load the new policy on its next start")
   return 0
 }
 

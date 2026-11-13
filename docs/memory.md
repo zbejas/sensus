@@ -143,7 +143,10 @@ session's frozen snapshot (see "Cache discipline").
 - **Injection scan**: instruction-override/exfiltration phrasing and invisible/bidi-control
   Unicode are refused because memory text is injected into the system prompt.
 - **Audit history**: every successful write appends a compact before/after record to
-  `memory/.history.jsonl` (newest 500 kept) so edits are auditable.
+  `memory/.history.jsonl` (newest 500 kept) so edits are auditable. A write committed
+  through the daemon — `POST /v1/memory/:target` or the cloud tunnel's `memory.write`
+  (the `control` scope) — also emits one `memory-write` event (`session:"daemon"`, with the
+  target/action/char delta, never the content; docs/extensions.md "memory-write").
 - **Rewrite**: the model's rewritten entries pass through the same secret/injection scans at
   commit time (`MemoryStore.rewrite`), so a consolidation cannot smuggle a credential or an
   instruction override into the store.

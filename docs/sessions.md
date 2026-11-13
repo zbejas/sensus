@@ -100,6 +100,28 @@ and the `--resume` picker. The `--resume` picker
 (`src/ui/components/ResumePicker.tsx`) adds type-to-filter over titles + first user text +
 tags.
 
+## Cloud reads and deletion
+
+The embedded cloud tunnel exposes the persisted-session service read-mostly
+(`transcript.list`/`read`/`export`/`context`, docs/auth.md "Cloud reads"). Every result is
+bounded and path-free:
+
+- `transcript.list` pages newest-first (limit 1–50, default 20) and **never returns the
+  absolute `path`** that the local `listSessions` row carries.
+- `transcript.read` windows 1–50 messages and clips each `content` to 16 000 chars with a
+  `truncated` flag; `thinking`, `images` and `usage` stay local.
+- `transcript.export` returns md or raw jsonl capped at 2 MiB; `bytes` reports the original
+  size when clipped.
+- `transcript.context` returns the engine `ContextBreakdown` with history capped to 120
+  rows and each preview to 160 chars.
+
+Deletion is the one destructive cloud op. It requires the `control` scope **and** the
+host-local `deleteTranscripts` policy flag (default `false`;
+`sensus cloud scopes --delete-transcripts on`). It is refused while a live chat is still
+appending to the transcript (`session_open`), and it deletes through the same engine path
+as the `/sessions` overlay (`deleteSessionFile` + `SessionIndex.remove`), so the search
+index is cleaned too. **Deletion is permanent: there is no trash and no undo.**
+
 ## Export
 
 `sessionToMarkdown(session)` renders a transcript as Markdown (title heading, tags/timestamp

@@ -25,7 +25,8 @@ alone cannot authenticate.
 | `src/daemon/cloud/pairing.ts` | Pairing exchange, whoami preflight, approval polling |
 | `src/daemon/cloud/tunnel.ts` | Outbound WSS, challenge signature, heartbeat, reconnect |
 | `src/daemon/cloud/probe.ts` | HTTPS probe of `/api/connector` when a WS upgrade fails (HTTP status/content type) |
-| `src/daemon/cloud/broker.ts` | Typed broker: op allowlist, scope checks, trust stripping, run lifecycle |
+| `src/daemon/cloud/broker.ts` | Typed broker: op allowlist, trust stripping, run lifecycle, bounded transcript/memory ops |
+| `src/daemon/cloud/ops.ts` | `TUNNEL_OPS` op → scope (+ `deleteTranscripts` policy gate) table consulted before the switch |
 | `src/daemon/cloud/discovery.ts` / `daemonClient.ts` | Local daemon token/port discovery + one local WS per cloud stream |
 | `src/daemon/cloud/client.ts` | Daemon-owned lifecycle: start/stop/reload, lifetime pin |
 | `src/daemon/cloud/state.ts` / `paths.ts` | `connection.json` + run registry paths |
@@ -40,7 +41,7 @@ alone cannot authenticate.
 ```bash
 sensus cloud pair --cloud https://cloud.example [--code ABCD-EFGH] \
   [--allow view,chat,control,orchestrator] [--allow-root] [--no-wait]
-sensus cloud scopes [--allow view,chat,control,orchestrator] [--allow-root] [--json]
+sensus cloud scopes [--allow view,chat,control,orchestrator] [--delete-transcripts on|off] [--allow-root] [--json]
 sensus cloud status [--json]
 sensus cloud doctor [--json]
 sensus cloud disable | enable | unpair
@@ -62,6 +63,10 @@ sensus cloud disable | enable | unpair
   host scopes at the set approved when the host paired, so widening beyond that set (for
   example a view-only pairing) needs a new pairing code and
   `sensus cloud pair --allow view,chat,control`.
+- `--delete-transcripts on|off` sets the host-local destructive opt-in described under
+  "Cloud reads" below. Turning it on prints an explicit warning: deleted transcripts are
+  removed **permanently with no trash** and disappear from session search. The policy write
+  keeps the existing uid/root protections (`--allow-root`, otherwise refused as root).
 - `status` reports the pinned origin, instance, fingerprint, scopes, Unix user/root,
   and the live tunnel state. It never prints the device token or private key. The
   JSON includes the CLI's `home`/`runtimeDir` and a `daemon` object with the
@@ -136,7 +141,8 @@ system unit; `sensus daemon install` never writes a system-wide unit). See
   "scopes": ["view", "chat"],
   "startDaemon": false,
   "allowedCwd": [],
-  "maxStreams": 8
+  "maxStreams": 8,
+  "deleteTranscripts": false
 }
 ```
 
@@ -186,15 +192,43 @@ single root daemon switching users is deliberately not supported.
 
 | Scope | Grants |
 |---|---|
-| `view` | Terminal list/attach as observer/detach; chat list/attach; daemon info/health |
+| `view` | Terminal list/attach as observer/detach; chat list/attach; daemon info/health; bounded transcript list/read/export/context; memory list/read |
 | `chat` | Create chats, send, abort, compact, retry, answer `ask_user`, commit plans, answer approvals |
-| `control` | Terminal controller: open/input/resize/facts/detach. No `terminal.kill` from the cloud |
+| `control` | Terminal controller: open/input/resize/facts/detach. No `terminal.kill` from the cloud. Also memory writes and (with `deleteTranscripts`) transcript deletion |
 | `orchestrator` | Headless runs: dedicated shell + chat, prompt, prompt answers, cleanup |
 
 The cloud intersects the host policy with the scopes approved at pairing; the
 host broker still enforces the policy for every op. Restart/reload the daemon after
 changing scopes (`sensus cloud` reloads automatically; otherwise restart it).
 Widening past the approved set requires pairing the host again.
+
+The broker's op → scope table is `src/daemon/cloud/ops.ts` (`TUNNEL_OPS`). `RelayBroker.rpc`
+consults it **before** its switch and answers `unknown_op` for anything absent, so adding a
+RPC case without a table row cannot widen the surface. `BLOCKED_OPS` (`terminal.kill`,
+`chat.setApproval`, trust mutations, `chat.revert`, `chat.setMcp`, `sudo.answer`) stays
+first and is never allowed whatever the scopes.
+
+### Cloud reads: transcripts and memory
+
+`hello.features` advertises `transcript.read`, `memory.read` and `memory.write` always, and
+`transcript.delete` only when `deleteTranscripts` is true. The ops are bounded in-process
+reads of the same data the TUI uses; none of them proxies arbitrary REST.
+
+| Op | Scope | Result (bounded) |
+|---|---|---|
+| `transcript.list` | `view` | `{ sessions, nextOffset }`; newest-first, limit 1–50 (default 20); rows never include the absolute `path` |
+| `transcript.read` | `view` | `{ id, title, tags, total, offset, messages }`; message window 1–50 (default 20); each `content` clipped to 16 000 chars with `truncated`; `thinking`/`images`/`usage` omitted |
+| `transcript.export` | `view` | `{ content, contentType, truncated, bytes }`; md or raw jsonl, hard-capped at 2 MiB with the original byte length in `bytes` |
+| `transcript.context` | `view` | `{ id, title, breakdown }`; the engine `ContextBreakdown`, history capped to 120 rows and previews to 160 chars |
+| `transcript.delete` | `control` + `deleteTranscripts` | `{ ok: true, id }`; refused as `delete_disabled` without the flag and `session_open` while a live chat appends to it. Permanent: JSONL + sidecar + FTS rows, no trash |
+| `memory.list` | `view` | `{ targets }` usage for MEMORY/HOST/JOURNAL |
+| `memory.read` | `view` | `{ target, content, entries, usage }`; content capped at 64 KiB (`truncated`), entries at 200 |
+| `memory.write` | `control` | The store's result verbatim; required fields match `POST /v1/memory/:target`; content over 64 KiB is `invalid_request`; a committed write emits one `memory-write` audit event |
+
+A transcript id is `<instance>/<base>` split on the first `/`; both segments must be a safe
+single path component. Traversal (`../x`, `a/b/c`) is `not_found`. A store-domain refusal
+(cap full, ambiguous `old_text`) comes back as a normal `rpc.res` whose result has
+`ok:false`, exactly like the REST route's 200.
 
 ## Gotchas & invariants
 

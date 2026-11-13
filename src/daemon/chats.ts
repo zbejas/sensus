@@ -22,6 +22,7 @@
  */
 
 import { errorMessage } from "../core/util.ts"
+import { resolve } from "node:path"
 import {
   configPath,
   parseSelectedModel,
@@ -430,6 +431,42 @@ export class ChatRegistry {
     } catch (e) {
       log.warn("session context breakdown failed", { err: e, path })
       return null
+    }
+  }
+
+  /**
+   * True when a live chat is still appending to this persisted transcript.
+   * The cloud/tunnel must refuse to delete such a file (the next append would
+   * silently recreate a partial transcript).
+   */
+  isSessionOpen(path: string): boolean {
+    try {
+      const target = resolve(path)
+      for (const record of this.records.values()) {
+        const open = record.chat.sessionFilePath
+        if (open !== null && resolve(open) === target) return true
+      }
+      return false
+    } catch (e) {
+      log.warn("session-open check failed", { err: e, path })
+      return false
+    }
+  }
+
+  /**
+   * Delete a persisted transcript the way the `/sessions` overlay does: the
+   * engine bridge unlinks the JSONL + sidecar and drops the FTS rows. Never
+   * throws; the caller reports a typed failure.
+   */
+  deleteSession(path: string): { ok: boolean; message?: string } {
+    try {
+      const search = this.getHost().getSessionSearch()
+      if (search.remove === undefined) return { ok: false, message: "session deletion is unavailable" }
+      if (!search.remove(path)) return { ok: false, message: "could not delete that session" }
+      return { ok: true }
+    } catch (e) {
+      log.warn("session delete failed", { err: e, path })
+      return { ok: false, message: "could not delete that session" }
     }
   }
 

@@ -24,6 +24,11 @@ export interface AuthPolicy {
   /** Absolute directories a connector `terminal.open` may use as its cwd. */
   allowedCwd: string[]
   maxStreams: number
+  /**
+   * Allow `transcript.delete` over the cloud tunnel. Off by default: deletion
+   * is permanent (no trash) and also removes the transcript from search.
+   */
+  deleteTranscripts: boolean
 }
 
 export function defaultPolicy(): AuthPolicy {
@@ -33,6 +38,7 @@ export function defaultPolicy(): AuthPolicy {
     startDaemon: false,
     allowedCwd: [],
     maxStreams: MAX_STREAMS,
+    deleteTranscripts: false,
   }
 }
 
@@ -69,6 +75,8 @@ export function normalizePolicy(value: unknown): AuthPolicy | null {
     startDaemon: value["startDaemon"] === true,
     allowedCwd: [...new Set(allowedCwd)],
     maxStreams: clampMaxStreams(value["maxStreams"]),
+    // Absent in older policy files: the destructive opt-in defaults OFF.
+    deleteTranscripts: value["deleteTranscripts"] === true,
   }
 }
 

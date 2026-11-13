@@ -76,6 +76,14 @@ describe("host policy", () => {
     expect(normalizePolicy({ version: 1, scopes: ["nope"] })).toBeNull();
   });
 
+  test("deleteTranscripts defaults off and older files stay valid", () => {
+    expect(defaultPolicy().deleteTranscripts).toBe(false);
+    // An older policy.json without the flag normalizes to false (never on).
+    expect(normalizePolicy({ version: 1, scopes: ["view"] })?.deleteTranscripts).toBe(false);
+    expect(normalizePolicy({ version: 1, scopes: ["view"], deleteTranscripts: true })?.deleteTranscripts).toBe(true);
+    expect(normalizePolicy({ version: 1, scopes: ["view"], deleteTranscripts: "yes" })?.deleteTranscripts).toBe(false);
+  });
+
   test("write/read round-trip is 0600 and preserves the allowlist", () => {
     const home = tempHome();
     const policy: AuthPolicy = { ...defaultPolicy(), scopes: ["view", "control"], allowedCwd: [home] };

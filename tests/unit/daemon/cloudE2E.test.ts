@@ -5,14 +5,15 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { loadOrCreateIdentity, verifyChallenge } from "../../../src/auth/identity"
 import { defaultPolicy, writePolicy } from "../../../src/auth/policy"
 import { writeCloudConnection } from "../../../src/daemon/cloud/state"
 import { startDaemon } from "../../../src/daemon/serve"
 import { defaultConfig } from "../../../src/engine/index.ts"
+import { sessionFilePath } from "../../../src/session/store.ts"
 import { SENSUS_VERSION } from "../../../src/version.ts"
 
 const cleanup: Array<() => void | Promise<void>> = []
@@ -55,7 +56,7 @@ describe("embedded cloud tunnel", () => {
     const nonce = "nonce-cloud-e2e"
     const instanceId = "inst_cloud_e2e"
     let hello: Record<string, unknown> | null = null
-    let rpc: Record<string, unknown> | null = null
+    const rpcById = new Map<string, Record<string, unknown>>()
     let signatureOk = false
 
     const server = Bun.serve({
@@ -101,10 +102,15 @@ describe("embedded cloud tunnel", () => {
                 scopes: ["view"],
               }),
             )
-            setTimeout(() => ws.send(JSON.stringify({ t: "rpc", id: "r1", op: "daemon.info" })), 30)
+            setTimeout(() => {
+              ws.send(JSON.stringify({ t: "rpc", id: "r1", op: "daemon.info" }))
+              ws.send(JSON.stringify({ t: "rpc", id: "r2", op: "transcript.list", params: {} }))
+              ws.send(JSON.stringify({ t: "rpc", id: "r3", op: "memory.list" }))
+            }, 30)
             return
           }
-          if (frame["t"] === "rpc.res" && frame["id"] === "r1") rpc = frame
+          if (frame["t"] === "rpc.res" && typeof frame["id"] === "string") rpcById.set(frame["id"], frame)
+          if (frame["t"] === "rpc.err" && typeof frame["id"] === "string") rpcById.set(frame["id"], frame)
         },
       },
     })
@@ -138,10 +144,17 @@ describe("embedded cloud tunnel", () => {
     cfg.model = "main@mock-model"
     cfg.titles.enabled = false
 
+    // A real transcript in the daemon's data dir: the cloud-facing list must
+    // see it and must NOT carry the absolute path.
+    const dataDir = join(dir, "data")
+    const transcript = sessionFilePath(dataDir, "instE2E", 1, 0)
+    mkdirSync(dirname(transcript), { recursive: true })
+    writeFileSync(transcript, `${JSON.stringify({ ts: 1, type: "user_message", content: "e2e hello" })}\n`, "utf8")
+
     const daemon = await startDaemon({
       runtimeDir,
       home,
-      dataDir: join(dir, "data"),
+      dataDir,
       initialConfig: cfg,
       persistent: true,
       startCloud: true,
@@ -154,11 +167,27 @@ describe("embedded cloud tunnel", () => {
     expect(gotHello["protocol"]).toBe("sensus-cloud/1")
     expect(gotHello["client"]).toMatchObject({ kind: "sensus-daemon", version: SENSUS_VERSION })
     expect(gotHello["host"]).toMatchObject({ unixUser: "tester", uid: 1000, runsAsRoot: false })
+    const features = gotHello["features"] as string[]
+    expect(features).toContain("transcript.read")
+    expect(features).toContain("memory.read")
+    expect(features).toContain("memory.write")
+    expect(features).not.toContain("transcript.delete")
 
-    const gotRpc = await waitFor(() => rpc)
+    const gotRpc = await waitFor(() => rpcById.get("r1") ?? null)
     expect(gotRpc["t"]).toBe("rpc.res")
     const result = gotRpc["result"] as Record<string, unknown>
     expect(result["state"]).toBe("running")
+
+    const list = await waitFor(() => rpcById.get("r2") ?? null)
+    expect(list["t"]).toBe("rpc.res")
+    const sessions = ((list["result"] as Record<string, unknown>)["sessions"] as Array<Record<string, unknown>>) ?? []
+    expect(sessions.map((s) => s["id"])).toEqual(["instE2E/tab-1"])
+    expect(JSON.stringify(sessions)).not.toContain(dataDir)
+    expect(Object.hasOwn(sessions[0]!, "path")).toBe(false)
+
+    const memory = await waitFor(() => rpcById.get("r3") ?? null)
+    expect(memory["t"]).toBe("rpc.res")
+    expect(((memory["result"] as Record<string, unknown>)["targets"] as unknown[]).length).toBe(3)
     expect(signatureOk).toBe(true)
   })
 })

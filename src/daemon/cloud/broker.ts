@@ -3,9 +3,16 @@
  *
  * This is the security boundary. The cloud sends a small typed RPC/stream
  * surface; every operation is checked against the host-local `policy.json`
- * before a local daemon WS/REST call is made. There is deliberately no generic
- * HTTP or WebSocket proxy, no config/secrets/memory/sessions/audit/models
- * surface, no sudo, no trust mutation, no `terminal.kill`, and no update path.
+ * before a local daemon WS/REST call is made (the op → scope table lives in
+ * `ops.ts`; that table is the allowlist). There is deliberately no generic
+ * HTTP or WebSocket proxy, no config/secrets/audit/models surface, no sudo, no
+ * trust mutation, no `terminal.kill`, and no update path.
+ *
+ * Persisted transcripts and agent memory are exposed read-mostly and BOUNDED:
+ * transcript reads never return the absolute file path, messages are clipped,
+ * exports are byte-capped, and memory writes go through the same `MemoryStore`
+ * (caps + safety scans) the TUI uses. Transcript deletion is the one destructive
+ * op: it needs `control` AND the host-local `deleteTranscripts` opt-in.
  *
  * One cloud stream maps to ONE local Sensus WS (`LocalDaemonClient`), so each
  * browser terminal gets its own daemon cursor/role and the daemon's own
@@ -14,6 +21,7 @@
  * from an observer.
  */
 
+import { Buffer } from "node:buffer"
 import { errorMessage, isRecord } from "../../core/util.ts"
 import type { AuthPolicy } from "../../auth/policy.ts"
 import { isCwdAllowed } from "../../auth/policy.ts"
@@ -24,6 +32,17 @@ import type { DaemonFacts, Scope, StreamKind } from "./protocol.ts"
 import { CLOUD_APPROVAL_HARD_CAP_MS, CLOUD_MAX_CHAT_RUN_STREAMS, CLOUD_MAX_STREAMS, CLOUD_MAX_TERMINAL_STREAMS, RUN_DEFAULT_TIMEOUT_SEC, RUN_MAX_TIMEOUT_SEC } from "./protocol.ts"
 import type { RunRecord } from "./cleanup.ts"
 import type { ConnectorToCloud } from "./protocol.ts"
+import { tunnelOpSpec } from "./ops.ts"
+import {
+  exportSession,
+  isSafeSessionSegment,
+  listSessions,
+  readSession,
+  resolveSessionPath,
+  type SessionExportFormat,
+} from "../sessions.ts"
+import { MEMORY_TARGETS, emitMemoryWrite, isMemoryAction, isMemoryTarget } from "../memoryContract.ts"
+import type { EventSink, MemoryResult, MemoryStore, MemoryTarget } from "../../engine/index.ts"
 
 /** Ops the cloud may never invoke, whatever its scopes (protocol "Scopes"). */
 export const BLOCKED_OPS: ReadonlySet<string> = new Set([
@@ -37,18 +56,21 @@ export const BLOCKED_OPS: ReadonlySet<string> = new Set([
   "sudo.answer",
 ])
 
-/** REST resource families that have no cloud route at all (documentation guard). */
-export const BLOCKED_REST_PREFIXES: readonly string[] = [
-  "/v1/config",
-  "/v1/secrets",
-  "/v1/memory",
-  "/v1/sessions",
-  "/v1/audit",
-  "/v1/models",
-  "/v1/mcp",
-  "/v1/agents",
-  "/v1/skills",
-]
+/** Default/max cloud page for `transcript.list` and `transcript.read`. */
+export const TRANSCRIPT_LIMIT_DEFAULT = 20
+export const TRANSCRIPT_LIMIT_MAX = 50
+/** Per-message content cap (characters) on `transcript.read`. */
+export const TRANSCRIPT_MESSAGE_MAX_CHARS = 16_000
+/** Hard byte cap on `transcript.export` content (the original size is reported). */
+export const TRANSCRIPT_EXPORT_MAX_BYTES = 2 * 1024 * 1024
+/** Context Inspector history rows / preview length returned to the cloud. */
+export const TRANSCRIPT_CONTEXT_MAX_HISTORY = 120
+export const TRANSCRIPT_CONTEXT_PREVIEW_CHARS = 160
+/** `memory.read` content byte cap + entry cap. */
+export const MEMORY_READ_MAX_BYTES = 64 * 1024
+export const MEMORY_READ_MAX_ENTRIES = 200
+/** `memory.write` content byte cap (rejected, never truncated). */
+export const MEMORY_WRITE_MAX_BYTES = 64 * 1024
 
 /** Chat/run stream ops the cloud may send (per chatId, see `streamSend`). */
 const CHAT_STREAM_OPS: ReadonlySet<string> = new Set([
@@ -74,6 +96,8 @@ export type BrokerEmit = (frame: ConnectorToCloud) => void
 export interface BrokerOptions {
   policy: AuthPolicy
   discover: () => Promise<DiscoveryResult>
+  /** Sessions root (`<dataDir>/sessions`); transcript ops read here directly. */
+  dataDir: string
   /** Test seam: a fake local daemon client. */
   clientFactory?: () => LocalDaemonLike
   /** Run registry hooks (0600 `runs.json`). */
@@ -81,6 +105,16 @@ export interface BrokerOptions {
   forgetRun?: (streamId: string) => { ok: boolean; error?: string }
   /** Local-policy daemon start (`startDaemon: true`). */
   startDaemon?: () => Promise<boolean>
+  /** Saved-session Context Inspector snapshot; absent → `unsupported`. */
+  contextForSession?: (path: string) => { title: string; breakdown: unknown } | null
+  /** True when a live chat is still appending to this transcript path. */
+  isSessionOpen?: (path: string) => boolean
+  /** Delete a transcript + sidecar + FTS rows; absent → `unsupported`. */
+  deleteSession?: (path: string) => { ok: boolean; message?: string }
+  /** Per-call memory store (same store the REST route uses); absent → `unsupported`. */
+  memoryStore?: () => MemoryStore
+  /** Audit sink for a committed `memory.write`. */
+  events?: EventSink
   now?: () => number
   maxStreams?: number
   approvalHardCapMs?: number
@@ -127,6 +161,96 @@ function positiveInt(v: unknown): number | null {
 
 function optionalString(v: unknown): string | undefined {
   return typeof v === "string" && v.length > 0 ? v : undefined
+}
+
+/** A cloud page size: absent → default; non-finite/non-number → null (invalid). */
+function parseLimit(raw: unknown, fallback = TRANSCRIPT_LIMIT_DEFAULT): number | null {
+  if (raw === undefined) return fallback
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return null
+  return Math.min(TRANSCRIPT_LIMIT_MAX, Math.max(1, Math.floor(raw)))
+}
+
+/** A cloud offset: absent → 0; non-finite/non-number → null (invalid); negatives clamp. */
+function parseOffset(raw: unknown): number | null {
+  if (raw === undefined) return 0
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return null
+  return Math.max(0, Math.floor(raw))
+}
+
+/** Split `"<instance>/<base>"` on the FIRST `/`; both segments must be safe. */
+function splitTranscriptId(raw: unknown): { instance: string; base: string } | null {
+  if (typeof raw !== "string") return null
+  const slash = raw.indexOf("/")
+  if (slash <= 0) return null
+  const instance = raw.slice(0, slash)
+  const base = raw.slice(slash + 1)
+  if (!isSafeSessionSegment(instance) || !isSafeSessionSegment(base)) return null
+  return { instance, base }
+}
+
+/** One cloud-facing transcript row (never the absolute `path`). */
+export interface TranscriptSummary {
+  id: string
+  title: string
+  tab: number | null
+  mtime: number
+  size: number
+  tags: string[]
+  messages: number
+  lastTs: number | null
+}
+
+/** One cloud-facing message (never `thinking`/`images`/`usage`). */
+export interface TranscriptMessage {
+  role: "user" | "assistant"
+  content: string
+  ts?: number
+  model?: string
+  aborted?: boolean
+  truncated?: boolean
+}
+
+/** Clip a UTF-8 string to at most `maxBytes`, never splitting a code point. */
+function clipUtf8(text: string, maxBytes: number): { text: string; truncated: boolean; bytes: number } {
+  const bytes = Buffer.byteLength(text, "utf8")
+  if (bytes <= maxBytes) return { text, truncated: false, bytes }
+  let clipped = Buffer.from(text, "utf8").subarray(0, maxBytes).toString("utf8")
+  // A cut mid-code-point decodes to U+FFFD; drop that artifact only.
+  if (clipped.endsWith("\uFFFD")) clipped = clipped.slice(0, -1)
+  return { text: clipped, truncated: true, bytes }
+}
+
+/** Bound a ContextBreakdown's history rows/previews for cloud transport. */
+function boundBreakdown(breakdown: unknown): unknown {
+  if (!isRecord(breakdown)) return breakdown
+  const history = breakdown["history"]
+  if (!Array.isArray(history)) return breakdown
+  const bounded = history.slice(0, TRANSCRIPT_CONTEXT_MAX_HISTORY).map((entry) => {
+    if (!isRecord(entry)) return entry
+    const preview = entry["preview"]
+    if (typeof preview !== "string" || preview.length <= TRANSCRIPT_CONTEXT_PREVIEW_CHARS) return entry
+    return { ...entry, preview: preview.slice(0, TRANSCRIPT_CONTEXT_PREVIEW_CHARS) }
+  })
+  return { ...breakdown, history: bounded }
+}
+
+/** Project one persisted chat record into the cloud message shape. */
+function toTranscriptMessage(record: {
+  role: "user" | "assistant"
+  content: string
+  ts?: number
+  model?: string
+  aborted?: boolean
+}): TranscriptMessage {
+  const clipped = record.content.length > TRANSCRIPT_MESSAGE_MAX_CHARS
+  return {
+    role: record.role,
+    content: clipped ? record.content.slice(0, TRANSCRIPT_MESSAGE_MAX_CHARS) : record.content,
+    ...(record.ts !== undefined ? { ts: record.ts } : {}),
+    ...(record.model !== undefined ? { model: record.model } : {}),
+    ...(record.aborted === true ? { aborted: true } : {}),
+    ...(clipped ? { truncated: true } : {}),
+  }
 }
 
 function parseDaemonRequest(raw: string): { ok: true; frame: Record<string, unknown>; id: string; op: string } | { ok: false; code: string; message: string } {
@@ -178,15 +302,29 @@ export class RelayBroker {
     return factsFromDiscovery(discovery)
   }
 
-  /** One typed RPC. Scope enforcement happens before the local call. */
+  /**
+   * One typed RPC. The op → scope table (`ops.ts`) is consulted first, so an
+   * op without a declared scope can never be served; blocked ops stay blocked
+   * regardless of scopes. The switch below only handles the declared surface.
+   */
   async rpc(op: string, params: unknown): Promise<RpcOutcome> {
     if (BLOCKED_OPS.has(op)) return { ok: false, code: "blocked_op", message: `${op} is never allowed for cloud traffic` }
-    if (!isRecord(params) && params !== undefined) return { ok: false, code: "invalid_request", message: "params must be an object" }
+    const spec = tunnelOpSpec(op)
+    if (spec === null) return { ok: false, code: "unknown_op", message: op }
+    if (!isRecord(params) && params !== undefined) return invalidRequest("params must be an object")
+    if (!hasScope(this.opts.policy.scopes, spec.scope)) return scopeError(spec.scope)
+    if (spec.policyFlag === "deleteTranscripts" && this.opts.policy.deleteTranscripts !== true) {
+      return {
+        ok: false,
+        code: "delete_disabled",
+        message:
+          "transcript deletion is disabled in the local cloud policy; it permanently deletes transcripts with no trash (sensus cloud scopes --delete-transcripts on)",
+      }
+    }
     const p = isRecord(params) ? params : {}
 
     switch (op) {
       case "daemon.info": {
-        if (!hasScope(this.opts.policy.scopes, "view")) return scopeError("view")
         const discovery = await this.opts.discover()
         const facts = factsFromDiscovery(discovery)
         return {
@@ -198,7 +336,6 @@ export class RelayBroker {
         }
       }
       case "daemon.health": {
-        if (!hasScope(this.opts.policy.scopes, "view")) return scopeError("view")
         const discovery = await this.opts.discover()
         if (!discovery.ok) return { ok: true, result: { ok: false, version: null } }
         return { ok: true, result: { ok: true, version: discovery.discovery.info.version ?? null } }
@@ -216,14 +353,12 @@ export class RelayBroker {
         return { ok: true, result: { state: facts.state } }
       }
       case "terminal.list": {
-        if (!hasScope(this.opts.policy.scopes, "view")) return scopeError("view")
         return await this.controlRequest("terminal.list", {})
       }
       case "terminal.open": {
-        if (!hasScope(this.opts.policy.scopes, "control")) return scopeError("control")
         const cols = positiveInt(p["cols"])
         const rows = positiveInt(p["rows"])
-        if (cols === null || rows === null) return { ok: false, code: "invalid_request", message: "cols and rows are required" }
+        if (cols === null || rows === null) return invalidRequest("cols and rows are required")
         const cwd = optionalString(p["cwd"])
         if (!isCwdAllowed(this.opts.policy, cwd)) {
           return { ok: false, code: "cwd_not_allowed", message: "cwd is outside the local policy's allowedCwd" }
@@ -233,11 +368,9 @@ export class RelayBroker {
         return await this.controlRequest("terminal.open", { cols, rows, ...(cwd !== undefined ? { cwd } : {}) })
       }
       case "chat.list": {
-        if (!hasScope(this.opts.policy.scopes, "view")) return scopeError("view")
         return await this.controlRequest("chat.list", {})
       }
       case "chat.open": {
-        if (!hasScope(this.opts.policy.scopes, "chat")) return scopeError("chat")
         if (p["resume"] !== undefined) {
           return { ok: false, code: "blocked_op", message: "chat.open may not resume a raw transcript path" }
         }
@@ -257,9 +390,180 @@ export class RelayBroker {
           ...(model !== undefined ? { model } : {}),
         })
       }
+      case "transcript.list": {
+        const limit = parseLimit(p["limit"])
+        const offset = parseOffset(p["offset"])
+        if (limit === null || offset === null) return invalidRequest("limit and offset must be numbers")
+        const page = listSessions(this.opts.dataDir, { limit, offset })
+        const sessions: TranscriptSummary[] = page.sessions.slice(0, TRANSCRIPT_LIMIT_MAX).map((s) => ({
+          id: s.id,
+          title: s.title,
+          tab: s.tab,
+          mtime: s.mtime,
+          size: s.size,
+          tags: s.tags,
+          messages: s.messages,
+          lastTs: s.lastTs,
+        }))
+        return { ok: true, result: { sessions, nextOffset: page.nextOffset } }
+      }
+      case "transcript.read": {
+        const id = splitTranscriptId(p["id"])
+        if (id === null) return notFound()
+        const limit = parseLimit(p["limit"])
+        const offset = parseOffset(p["offset"])
+        if (limit === null || offset === null) return invalidRequest("limit and offset must be numbers")
+        const page = readSession(this.opts.dataDir, id.instance, id.base, { limit, offset })
+        if (page === null) return notFound()
+        return {
+          ok: true,
+          result: {
+            id: page.id,
+            title: page.title,
+            tags: page.tags,
+            total: page.total,
+            offset: page.offset,
+            messages: page.messages.slice(0, TRANSCRIPT_LIMIT_MAX).map(toTranscriptMessage),
+          },
+        }
+      }
+      case "transcript.export": {
+        const id = splitTranscriptId(p["id"])
+        if (id === null) return notFound()
+        const format = p["format"]
+        if (format !== "md" && format !== "jsonl") return invalidRequest("format must be md|jsonl")
+        const out = exportSession(this.opts.dataDir, id.instance, id.base, format as SessionExportFormat)
+        if (out === null) return notFound()
+        const clipped = clipUtf8(out.content, TRANSCRIPT_EXPORT_MAX_BYTES)
+        return {
+          ok: true,
+          result: {
+            content: clipped.text,
+            contentType: out.contentType,
+            truncated: clipped.truncated,
+            bytes: clipped.bytes,
+          },
+        }
+      }
+      case "transcript.context": {
+        const id = splitTranscriptId(p["id"])
+        if (id === null) return notFound()
+        const path = resolveSessionPath(this.opts.dataDir, id.instance, id.base)
+        if (path === null) return notFound()
+        const contextFor = this.opts.contextForSession
+        if (contextFor === undefined) {
+          return { ok: false, code: "unsupported", message: "session context is not available on this host" }
+        }
+        const view = contextFor(path)
+        if (view === null) return notFound()
+        return {
+          ok: true,
+          result: { id: `${id.instance}/${id.base}`, title: view.title, breakdown: boundBreakdown(view.breakdown) },
+        }
+      }
+      case "transcript.delete": {
+        const id = splitTranscriptId(p["id"])
+        if (id === null) return notFound()
+        const path = resolveSessionPath(this.opts.dataDir, id.instance, id.base)
+        if (path === null) return notFound()
+        if (this.opts.isSessionOpen?.(path) === true) {
+          return { ok: false, code: "session_open", message: "the transcript is open in a live chat" }
+        }
+        const remove = this.opts.deleteSession
+        if (remove === undefined) {
+          return { ok: false, code: "unsupported", message: "transcript deletion is not available on this host" }
+        }
+        const deleted = remove(path)
+        if (!deleted.ok) {
+          return { ok: false, code: "delete_failed", message: deleted.message ?? "could not delete that transcript" }
+        }
+        return { ok: true, result: { ok: true, id: `${id.instance}/${id.base}` } }
+      }
+      case "memory.list": {
+        const store = this.getMemoryStore()
+        if (store === null) return memoryUnsupported()
+        return { ok: true, result: { targets: MEMORY_TARGETS.map((target) => store.usage(target)) } }
+      }
+      case "memory.read": {
+        const target = p["target"]
+        if (!isMemoryTarget(target)) return invalidRequest("target must be memory|host|journal")
+        const store = this.getMemoryStore()
+        if (store === null) return memoryUnsupported()
+        const read = store.readResult(target)
+        const clipped = clipUtf8(read.content ?? "", MEMORY_READ_MAX_BYTES)
+        const entries = (read.entries ?? []).slice(0, MEMORY_READ_MAX_ENTRIES)
+        return {
+          ok: true,
+          result: {
+            target,
+            content: clipped.text,
+            entries,
+            usage: read.usage ?? store.usage(target),
+            ...(clipped.truncated ? { truncated: true } : {}),
+          },
+        }
+      }
+      case "memory.write": {
+        const target = p["target"]
+        if (!isMemoryTarget(target)) return invalidRequest("target must be memory|host|journal")
+        const action = p["action"]
+        if (!isMemoryAction(action)) return invalidRequest("action must be add|replace|remove|rewrite|prune")
+        const store = this.getMemoryStore()
+        if (store === null) return memoryUnsupported()
+
+        let result: MemoryResult
+        switch (action) {
+          case "add": {
+            const content = memoryContent(p["content"])
+            if (content === null) return invalidRequest("content is required (max 64 KiB)")
+            result = store.add(target, content)
+            break
+          }
+          case "replace": {
+            const content = memoryContent(p["content"])
+            const oldText = asOptionalString(p["old_text"])
+            if (content === null || oldText === undefined) {
+              return invalidRequest("replace needs content (max 64 KiB) + old_text")
+            }
+            result = store.replace(target, oldText, content)
+            break
+          }
+          case "remove": {
+            const oldText = asOptionalString(p["old_text"])
+            if (oldText === undefined) return invalidRequest("remove needs old_text")
+            result = store.remove(target, oldText)
+            break
+          }
+          case "rewrite": {
+            const content = memoryContent(p["content"])
+            if (content === null) return invalidRequest("content is required (max 64 KiB)")
+            result = store.rewrite(target, content)
+            break
+          }
+          default: {
+            // prune
+            const keep = p["keep_chars"]
+            if (keep !== undefined && (typeof keep !== "number" || !Number.isFinite(keep))) {
+              return invalidRequest("keep_chars must be a number")
+            }
+            result = store.prune(target, keep as number | undefined)
+            break
+          }
+        }
+
+        // The audit event is identical to the REST route's; content is never logged.
+        if (this.opts.events !== undefined) emitMemoryWrite(this.opts.events, result)
+        return { ok: true, result: memoryResultBody(target, action, result) }
+      }
       default:
+        // Unreachable: the op table above is the allowlist.
         return { ok: false, code: "unknown_op", message: op }
     }
+  }
+
+  /** The per-call memory store (null when this relay has no store wired). */
+  private getMemoryStore(): MemoryStore | null {
+    return this.opts.memoryStore === undefined ? null : this.opts.memoryStore()
   }
 
   /**
@@ -854,6 +1158,47 @@ export class RelayBroker {
 
 function scopeError(scope: Scope): RpcOutcome {
   return { ok: false, code: "scope_required", message: `the local policy does not grant ${scope}` }
+}
+
+function invalidRequest(message: string): RpcOutcome {
+  return { ok: false, code: "invalid_request", message }
+}
+
+function notFound(): RpcOutcome {
+  return { ok: false, code: "not_found", message: "unknown transcript" }
+}
+
+function memoryUnsupported(): RpcOutcome {
+  return { ok: false, code: "unsupported", message: "memory is not available on this host" }
+}
+
+/** A store string field (REST parity: any string, including empty, is passed through). */
+function asOptionalString(v: unknown): string | undefined {
+  return typeof v === "string" ? v : undefined
+}
+
+/** A memory write's `content`: required string, rejected (not clipped) above 64 KiB. */
+function memoryContent(raw: unknown): string | null {
+  if (typeof raw !== "string") return null
+  if (Buffer.byteLength(raw, "utf8") > MEMORY_WRITE_MAX_BYTES) return null
+  return raw
+}
+
+/**
+ * The store's result verbatim (a store-domain refusal stays a NORMAL `rpc.res`
+ * with `ok:false`, exactly like the REST route's 200). Content is not logged.
+ */
+function memoryResultBody(target: MemoryTarget, action: string, result: MemoryResult): Record<string, unknown> {
+  return {
+    ok: result.ok,
+    target,
+    action,
+    message: result.message,
+    ...(result.content !== undefined ? { content: result.content } : {}),
+    ...(result.entries !== undefined ? { entries: result.entries } : {}),
+    ...(result.usage !== undefined ? { usage: result.usage } : {}),
+    ...(result.write !== undefined ? { write: result.write } : {}),
+  }
 }
 
 /** Project a discovery result into the cloud's `DaemonFacts` (no pid/socket/tcp). */

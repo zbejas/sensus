@@ -289,7 +289,10 @@ telemetry egress (D8).
 
 The opt-in cloud tunnel (`cloud/`) is the one control-plane egress exception: after
 `sensus cloud pair`, `serve` starts an outbound WSS to the pinned origin, with the
-typed broker enforcing the host policy. It is off until paired, and a paired tunnel
+typed broker enforcing the host policy through the `TUNNEL_OPS` op → scope table
+(`cloud/ops.ts`). Besides terminal/chat streams it exposes bounded, path-free
+transcript and memory reads; transcript deletion is off unless the host-local
+`deleteTranscripts` flag is set. It is off until paired, and a paired tunnel
 pins the daemon so the panel can reach it after a reconnect ([`auth.md`](auth.md)).
 
 ### `client/`

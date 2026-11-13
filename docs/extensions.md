@@ -28,7 +28,7 @@ seam so a socket-driven turn cannot bypass the approval gate.
 | `src/agent/chat/chatHost.ts` | Builds the policy/sink from config at boot and on every `/reload`; emits `session-start` from `createTabChat` |
 | `src/agent/chat/chatMessages.ts` | `ChatSessionDeps.approvalPolicy` / `.eventSink` / `.sessionId` (the getter seam) |
 | `src/config/config/resolve.ts` | Parses the `extensions` config section ([`config.md`](config.md) "extensions") |
-| `src/agent/memory/store.ts` + `src/agent/tools/execute.ts` | Surface the committed memory write's char delta for the `memory-write` event |
+| `src/agent/memory/store.ts` + `src/agent/tools/execute.ts` + `src/daemon/memoryContract.ts` | Surface the committed memory write's char delta for the `memory-write` event (the tools, and the daemon REST/cloud memory writers, emit it) |
 
 ## How it works
 

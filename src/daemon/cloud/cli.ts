@@ -8,24 +8,30 @@
  * outbound tunnel. No inbound port is opened.
  */
 
-import { realpathSync } from "node:fs"
-import { resolve } from "node:path"
+import { existsSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs"
+import { homedir, tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
 import { errorMessage, isRecord } from "../../core/util.ts"
 import { loadOrCreateIdentity, readIdentity } from "../../auth/identity.ts"
 import { defaultPolicy, readPolicy, writePolicy } from "../../auth/policy.ts"
 import { parseScopeList, hasScope, SCOPES, type Scope } from "../../auth/scopes.ts"
 import { safeUid } from "../../auth/paths.ts"
-import { sensusHomeFrom } from "../../config/config/paths.ts"
+import { sensusHomeFrom, sensusRuntimeDirFrom } from "../../config/config/paths.ts"
 import { SENSUS_VERSION } from "../../version.ts"
 import {
   checkUserLinger,
   enableUserLinger,
   installService,
+  realRunner,
+  serviceUnitPath,
   type LingerEnableResult,
   type LingerStatus,
   type ServiceCommandOptions,
 } from "../service.ts"
+import { SYSTEM_CONFIG_HOME, installSystemService, systemServiceInstalled } from "../systemService.ts"
+import { SYSTEM_RUNTIME_DIR } from "../paths.ts"
+import { readPidFile } from "../token.ts"
 import { reconcileCloudService } from "./reconcile.ts"
 import { discoverDaemon, requestOverUnix, type DaemonInfoPayload } from "./discovery.ts"
 import { daemonSocketPath, resolveRuntimeDir } from "./paths.ts"
@@ -44,6 +50,13 @@ import { hostFacts } from "./state.ts"
 export interface CloudIo {
   out(s: string): void
   err(s: string): void
+}
+
+/** A daemon discovered outside the target system runtime. */
+export interface DaemonConflict {
+  runtimeDir: string
+  uid: number
+  pid: number
 }
 
 export interface CloudCliOptions {
@@ -66,6 +79,22 @@ export interface CloudCliOptions {
     /** False when reconciling a daemon that is already running. */
     startNow?: boolean
   }) => Promise<number>
+  /** Test seam for the root system-service install. */
+  installSystem?: (opts: {
+    home: string
+    env: NodeJS.ProcessEnv
+    runtimeDir: string
+    startNow?: boolean
+    uid?: number
+  }) => Promise<number>
+  /** Test seam: is the root system unit already installed? */
+  systemInstalled?: () => boolean
+  /** Test seam: daemons outside `/run/sensus` that would conflict. */
+  findDaemonConflicts?: () => DaemonConflict[]
+  /** Test seam: is root's per-user unit file present? */
+  rootUserUnitInstalled?: () => boolean
+  /** Test seam: stop a root user daemon at `runtimeDir`. */
+  stopRootDaemon?: (runtimeDir: string) => Promise<number>
   /** Test seam for `loginctl enable-linger` after a service install. */
   enableLinger?: (opts: { env: NodeJS.ProcessEnv; user: string }) => Promise<LingerEnableResult>
   /** Test seam for the detached `sensus daemon start` fallback. */
@@ -112,7 +141,7 @@ export interface CloudDaemonStatus {
 const USAGE = `sensus cloud — pair this host with a Sensus Cloud panel
 
 Usage:
-  sensus cloud pair --cloud <url> [--code <CODE>] [--allow <scopes>] [--allow-root] [--no-wait] [--no-service] [--no-linger]
+  sensus cloud pair --cloud <url> [--code <CODE>] [--allow <scopes>] [--allow-root] [--no-wait] [--no-service] [--no-linger] [--root|--user]
   sensus cloud scopes [--allow <scopes>] [--delete-transcripts on|off] [--allow-root] [--json]
   sensus cloud status [--json]
   sensus cloud doctor [--json]
@@ -123,8 +152,11 @@ Pairing creates the host identity and scope policy if they do not exist,
 stores the device token at <config>/cloud/connection.json (0600), and opens
 one outbound WebSocket to the pinned cloud origin. No inbound port is opened.
 
-When no daemon is running, pair installs and enables the user service for the
-pairing user, tries to enable lingering on Linux, and starts it. If the service
+When no daemon is running, pair installs and enables the service for the pairing
+user and starts it. A root shell uses the root system service by default
+(/etc/systemd/system/sensus.service, /run/sensus, /root/.config/sensus); --user
+keeps the per-user service even as root, and --root forces the system service
+(uid 0). The user service tries to enable lingering on Linux. If the service
 manager is unavailable it starts the daemon for the current session.
 --no-service skips the unit; --no-linger skips lingering.
 
@@ -450,10 +482,12 @@ async function waitForTunnel(
   return { ok: false, connected: false, message: detail }
 }
 
+type PairServiceMode = "user" | "system" | "none"
+
 interface DaemonServiceSetup {
-  /** Install/enable the always-on user unit (false for `--no-service`). */
-  install: boolean
-  /** Try to enable systemd lingering (false for `--no-linger`). */
+  /** Which service manager pairing should use (`none` for `--no-service`). */
+  mode: PairServiceMode
+  /** Try to enable systemd lingering (user services only; `--no-linger` disables). */
   linger: boolean
 }
 
@@ -468,6 +502,31 @@ async function ensureDaemonService(
 ): Promise<EnsureResult> {
   const env = opts.env ?? process.env
   const user = unixUserLabel(uid, env)
+  const systemInstalled = opts.systemInstalled ?? systemServiceInstalled
+  const installSystemFn =
+    opts.installSystem ??
+    (async (input: {
+      home: string
+      env: NodeJS.ProcessEnv
+      runtimeDir: string
+      startNow?: boolean
+      uid?: number
+    }) =>
+      installSystemService({
+        io,
+        env: input.env,
+        home: input.home,
+        runtimeDir: input.runtimeDir,
+        startNow: input.startNow,
+        uid: input.uid,
+      }))
+
+  if (setup.mode === "system" && uid !== 0) {
+    const message = "the root system service requires uid 0 (run the command as root or with sudo)"
+    io.err(`sensus cloud: ${message}`)
+    return { ok: false, connected: false, message }
+  }
+
   const discovery = await (opts.discover ?? discoverDaemon)({ runtimeDir, env })
   if (discovery.ok) {
     const reason = explainIncompatibility(io, discovery.discovery.info, home, uid)
@@ -478,7 +537,7 @@ async function ensureDaemonService(
     // A daemon may already be running on demand (for example, pairing from a
     // second pane while the TUI is open). Install/enable the unit now without
     // starting a second daemon; the running one keeps the tunnel up meanwhile.
-    if (setup.install) {
+    if (setup.mode === "user") {
       const reconciled = await reconcileCloudService({
         home,
         env,
@@ -515,6 +574,13 @@ async function ensureDaemonService(
           `sensus cloud: warning: could not install the daemon service (${reconciled.detail ?? "unknown error"}); the running daemon keeps the tunnel up for now.`,
         )
       }
+    } else if (setup.mode === "system" && !systemInstalled()) {
+      const code = await installSystemFn({ home, env, runtimeDir, startNow: false, uid })
+      if (code === 0) {
+        io.out("sensus cloud: installed and enabled the root system service")
+      } else {
+        io.err("sensus cloud: warning: could not install the root system service; the running daemon keeps the tunnel up for now.")
+      }
     }
     io.out(wait ? "sensus cloud: daemon reloaded; waiting for the tunnel…" : "sensus cloud: daemon reloaded")
     if (!wait) return { ok: true, connected: false, message: "not waiting" }
@@ -548,13 +614,25 @@ async function ensureDaemonService(
     return await waitForTunnel(io, opts, home, runtimeDir)
   }
 
-  if (!setup.install) {
+  if (setup.mode === "none") {
     return await startForSession("--no-service set; starting the daemon for this session only.")
+  }
+
+  if (setup.mode === "system") {
+    io.out(`sensus cloud: installing the root Sensus system service…`)
+    const code = await installSystemFn({ home, env, runtimeDir, startNow: true, uid })
+    if (code !== 0) {
+      io.err("sensus cloud: could not install the root system service; starting it for this session instead.")
+      return await startForSession("starting the daemon for this session (it will not restart after a reboot).")
+    }
+    io.out("sensus cloud: installed and enabled the root Sensus system service")
+    if (!wait) return { ok: true, connected: false, message: "not waiting" }
+    return await waitForTunnel(io, opts, home, runtimeDir)
   }
 
   if (uid === 0) {
     io.err(
-      "sensus cloud: warning: installing a root user service. Run as a regular user when possible; root's user manager may need lingering to start it at boot.",
+      "sensus cloud: warning: installing a root user service. Use --root for the system service, or run as a regular user; root's user manager may need lingering to start it at boot.",
     )
   }
 
@@ -801,8 +879,133 @@ async function statusCommand(io: CloudIo, opts: CloudCliOptions, home: string, r
   return daemon.probeError !== null || homeMismatch || userMismatch || versionMismatch ? 1 : 0
 }
 
+/** Read a live daemon pid from a runtime dir, or null. */
+function daemonPidAt(runtimeDir: string): number | null {
+  const pid = readPidFile(join(runtimeDir, "daemon.pid"))
+  if (pid === null) return null
+  try {
+    process.kill(pid, 0)
+    return pid
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM" ? pid : null
+  }
+}
+
+/** Best-effort scan for daemons outside the target `/run/sensus`. */
+function scanDaemonConflicts(env: NodeJS.ProcessEnv, targetRuntimeDir: string): DaemonConflict[] {
+  const candidates = new Set<string>([sensusRuntimeDirFrom(env)])
+  const addDir = (dir: string): void => {
+    if (dir !== targetRuntimeDir) candidates.add(dir)
+  }
+  const read = (dir: string): string[] => {
+    try {
+      return readdirSync(dir)
+    } catch {
+      return []
+    }
+  }
+  for (const userDir of read("/run/user")) {
+    const base = join("/run/user", userDir)
+    for (const entry of read(base)) if (entry.startsWith("sensus-")) addDir(join(base, entry))
+  }
+  for (const entry of read(tmpdir())) if (entry.startsWith("sensus-")) addDir(join(tmpdir(), entry))
+
+  const conflicts: DaemonConflict[] = []
+  for (const runtimeDir of candidates) {
+    const pid = daemonPidAt(runtimeDir)
+    if (pid === null) continue
+    let uid = -1
+    try {
+      uid = statSync(runtimeDir).uid
+    } catch {
+      // gone between the pid check and stat
+    }
+    conflicts.push({ runtimeDir, uid, pid })
+  }
+  return conflicts
+}
+
+/**
+ * Switching a root shell to the system service must not silently kill another
+ * account's shells. Root's own user daemon/service is stopped after a prompt;
+ * another account's daemon is reported with the exact commands and aborts.
+ */
+async function preflightSystemSwitch(
+  io: CloudIo,
+  opts: CloudCliOptions,
+  env: NodeJS.ProcessEnv,
+  targetRuntimeDir: string,
+  interactive: boolean,
+): Promise<boolean> {
+  const conflicts = opts.findDaemonConflicts?.() ?? scanDaemonConflicts(env, targetRuntimeDir)
+  const rootUnitPath = serviceUnitPath("systemd", homedir())
+  const rootUnit = opts.rootUserUnitInstalled?.() ?? existsSync(rootUnitPath)
+
+  const other = conflicts.filter((conflict) => conflict.uid !== 0)
+  if (other.length > 0) {
+    for (const conflict of other) {
+      io.err(
+        `sensus cloud pair: a Sensus daemon is running for another account (pid ${conflict.pid}, runtime ${conflict.runtimeDir}).`,
+      )
+    }
+    io.err("sensus cloud pair: switch to that account and stop it before installing the root system service:")
+    io.err("  systemctl --user disable --now sensus")
+    io.err("  sensus daemon stop")
+    io.err("sensus cloud pair: then rerun this command.")
+    return false
+  }
+
+  const rootConflicts = conflicts.filter((conflict) => conflict.uid === 0)
+  if (!rootUnit && rootConflicts.length === 0) return true
+  if (!interactive) {
+    io.err("sensus cloud pair: a root user daemon/service is running; stop it before switching to the system service:")
+    io.err("  systemctl --user disable --now sensus")
+    io.err("  sensus daemon stop")
+    io.err("sensus cloud pair: then rerun this command.")
+    return false
+  }
+  const askFn = opts.confirm ?? ((q: string, d: boolean) => ask(q, d))
+  const approved = await askFn(
+    "Stop root's existing user daemon/service and switch to the system service? [y/N] ",
+    false,
+  )
+  if (!approved) {
+    io.err("sensus cloud pair: cancelled; the existing root user service is unchanged.")
+    return false
+  }
+
+  if (rootUnit) {
+    let disabled = await realRunner.run(["systemctl", "--user", "disable", "--now", "sensus.service"])
+    if (!disabled.ok) {
+      disabled = await realRunner.run(["systemctl", "--user", "--machine=root@.host", "disable", "--now", "sensus.service"])
+    }
+    if (!disabled.ok) {
+      const detail = disabled.stderr.trim() || disabled.stdout.trim()
+      io.err(`sensus cloud pair: warning: could not disable root's user service${detail.length > 0 ? ` — ${detail}` : ""}.`)
+    }
+    // The user approved the switch; remove the app-managed user unit so it
+    // cannot start beside the system service on a later root login.
+    try {
+      rmSync(rootUnitPath, { force: true })
+      await realRunner.run(["systemctl", "--user", "daemon-reload"])
+    } catch {
+      // best-effort cleanup
+    }
+  }
+  if (rootConflicts.length > 0) {
+    const stopRoot =
+      opts.stopRootDaemon ??
+      (async (runtimeDir: string) => {
+        const { runDaemon } = await import("../cli.ts")
+        return await runDaemon(["stop"], io, { ...env, SENSUS_RUNTIME_DIR: runtimeDir })
+      })
+    for (const conflict of rootConflicts) await stopRoot(conflict.runtimeDir)
+  }
+  return true
+}
+
 async function pairCommand(io: CloudIo, opts: CloudCliOptions, argv: readonly string[]): Promise<number> {
-  const flags = parseFlags(argv, new Set(["allow-root", "no-wait", "no-service", "no-linger", "json"]))
+  const flags = parseFlags(argv, new Set(["allow-root", "no-wait", "no-service", "no-linger", "root", "user", "json"]))
   if (flags.error !== null) {
     io.err(`sensus cloud pair: ${flags.error}`)
     return 1
@@ -819,12 +1022,41 @@ async function pairCommand(io: CloudIo, opts: CloudCliOptions, argv: readonly st
   }
   const uid = opts.uid ?? safeUid() ?? -1
   const env = opts.env ?? process.env
-  const home = opts.home ?? sensusHomeFrom(env)
-  const runtimeDir = opts.runtimeDir ?? resolveRuntimeDir(env)
   const interactive = opts.interactive ?? defaultInteractive()
-  const allowRoot = flags.values.get("allow-root") === true
-  const approvedRoot = await confirmRoot(io, uid, allowRoot, interactive, opts.confirm)
+  const forceRoot = flags.values.get("root") === true
+  const forceUser = flags.values.get("user") === true
+  if (forceRoot && forceUser) {
+    io.err("sensus cloud pair: choose one of --root or --user")
+    return 1
+  }
+  if (flags.values.get("no-service") === true && (forceRoot || forceUser)) {
+    io.err("sensus cloud pair: --no-service cannot be combined with --root or --user")
+    return 1
+  }
+  // A root shell defaults to the root-owned system service; --user keeps the
+  // per-user unit. --root is the explicit switch back to the system service.
+  const useSystem = forceRoot || (!forceUser && uid === 0)
+  if (useSystem && uid !== 0) {
+    io.err("sensus cloud pair: --root requires uid 0; run it as root or with sudo")
+    return 1
+  }
+  if (useSystem && flags.values.get("linger") === true) {
+    io.err("sensus cloud pair: --linger applies to user services; the system service starts at boot")
+    return 1
+  }
+  const home = opts.home ?? (useSystem ? SYSTEM_CONFIG_HOME : sensusHomeFrom(env))
+  const runtimeDir = opts.runtimeDir ?? (useSystem ? SYSTEM_RUNTIME_DIR : resolveRuntimeDir(env))
+  const allowRoot = useSystem || flags.values.get("allow-root") === true
+  const approvedRoot = useSystem
+    ? true
+    : await confirmRoot(io, uid, allowRoot, interactive, opts.confirm)
   if (uid === 0 && !approvedRoot) return 1
+  if (useSystem) {
+    io.err("sensus cloud: warning: pairing as root with the system service; the cloud will control root shells.")
+    if (!(await preflightSystemSwitch(io, opts, env, runtimeDir, interactive))) return 1
+  }
+  const mode: PairServiceMode =
+    flags.values.get("no-service") === true ? "none" : useSystem ? "system" : "user"
 
   // Pairing writes into THIS config home and reloads THIS runtime dir. If a
   // daemon is already running with another home/user, it would never see the
@@ -906,6 +1138,7 @@ async function pairCommand(io: CloudIo, opts: CloudCliOptions, argv: readonly st
     host,
     uid,
     allowRoot: approvedRoot,
+    serviceScope: mode,
     ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
     ...(opts.now !== undefined ? { now: opts.now } : {}),
     waitForApproval: flags.values.get("no-wait") !== true,
@@ -919,8 +1152,8 @@ async function pairCommand(io: CloudIo, opts: CloudCliOptions, argv: readonly st
   const noWait = flags.values.get("no-wait") === true
   const wait = !noWait && result.state !== "pending"
   const ensured = await ensureDaemonService(io, opts, home, runtimeDir, uid, wait, {
-    install: flags.values.get("no-service") !== true,
-    linger: flags.values.get("no-linger") !== true,
+    mode,
+    linger: mode === "user" && flags.values.get("no-linger") !== true,
   })
   io.out("")
   io.out("sensus cloud: pairing saved. Revoke it any time in the cloud's Fleet panel.")

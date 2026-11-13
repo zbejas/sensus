@@ -9,6 +9,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { sensusRuntimeDirFrom } from "../../../src/engine/index.ts"
 import {
+  SYSTEM_RUNTIME_DIR,
   daemonEventsSocketPath,
   daemonLogJsonlPath,
   daemonLogPath,
@@ -16,6 +17,7 @@ import {
   daemonRuntimeDir,
   daemonSocketPath,
   daemonTokenPath,
+  resolveDaemonRuntimeDir,
 } from "../../../src/daemon/index.ts"
 
 const uid = typeof process.getuid === "function" ? String(process.getuid()) : "0"
@@ -27,6 +29,24 @@ describe("config: sensusRuntimeDirFrom", () => {
     expect(sensusRuntimeDirFrom({ XDG_RUNTIME_DIR: "/run/user/1000" })).toBe(`/run/user/1000/sensus-${uid}`)
     expect(sensusRuntimeDirFrom({ XDG_RUNTIME_DIR: "" })).toBe(join(tmpdir(), `sensus-${uid}`))
     expect(sensusRuntimeDirFrom({})).toBe(join(tmpdir(), `sensus-${uid}`))
+  })
+})
+
+describe("daemon: system runtime resolution", () => {
+  test("an explicit SENSUS_RUNTIME_DIR always wins", () => {
+    expect(
+      resolveDaemonRuntimeDir(
+        { SENSUS_RUNTIME_DIR: "/custom/run", XDG_RUNTIME_DIR: "/run/user/1000" },
+        { systemAvailable: () => true },
+      ),
+    ).toBe("/custom/run")
+  })
+
+  test("a running root system service wins for roots; otherwise the per-user dir", () => {
+    expect(resolveDaemonRuntimeDir({}, { systemAvailable: () => true })).toBe(SYSTEM_RUNTIME_DIR)
+    expect(resolveDaemonRuntimeDir({ XDG_RUNTIME_DIR: "/run/user/1000" }, { systemAvailable: () => false })).toBe(
+      `/run/user/1000/sensus-${uid}`,
+    )
   })
 })
 

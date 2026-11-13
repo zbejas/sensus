@@ -739,9 +739,12 @@ daemon and re-shows the warning as a toast (`sensus daemon restart` remains the
 manual escape hatch).
 
 The chat/approval/sudo channels and the idle-exit policy are implemented (P3c-i/
-ii/iii). `daemon install`/`uninstall` (a systemd/launchd user unit that runs the
-daemon in persistent mode; P6) is implemented in `src/daemon/service.ts` — see
-[`operations.md`](operations.md) "Daemon" for the unit shapes and
+ii/iii). `daemon install`/`uninstall` writes/removes a persistent service: the
+default is the systemd/launchd **user** unit (`src/daemon/service.ts`); `--root`
+writes the Linux root **system** unit (`src/daemon/systemService.ts`,
+`/etc/systemd/system/sensus.service`, `/run/sensus`). A root shell defaults to
+`--root`, and root CLI/TUI discovery prefers `/run/sensus` when its token
+exists. See [`operations.md`](operations.md) "Daemon" for the unit shapes and
 [`triggers.md`](triggers.md) for the always-on monitoring layer it enables.
 
 ## Gotchas & invariants

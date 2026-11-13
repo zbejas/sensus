@@ -401,19 +401,41 @@ describe("runDaemon: headless command surface", () => {
       // `--dry-run` exercises the real dispatch without writing a unit or
       // invoking systemctl/launchctl (the injected-runner path is unit-tested).
       const install = captureIo()
-      expect(await runDaemon(["install", "--dry-run"], install.io, env)).toBe(0)
+      expect(await runDaemon(["install", "--user", "--dry-run"], install.io, env)).toBe(0)
       expect(install.err).toEqual([])
       const text = install.out.join("\n")
       expect(text).toContain("dry run")
       expect(text).toContain("SENSUS_DAEMON_PERSISTENT=1")
 
       const uninstall = captureIo()
-      expect(await runDaemon(["uninstall", "--dry-run"], uninstall.io, env)).toBe(0)
+      expect(await runDaemon(["uninstall", "--user", "--dry-run"], uninstall.io, env)).toBe(0)
       expect(uninstall.out.join("\n")).toContain("would remove")
 
       const unknown = captureIo()
       expect(await runDaemon(["bogus"], unknown.io, env)).toBe(1)
       expect(unknown.err.join("\n")).toContain("usage: sensus daemon")
+    } finally {
+      cleanup()
+    }
+  })
+
+  test("--root --dry-run prints the root system unit without touching /etc", async () => {
+    if ((process.getuid?.() ?? -1) !== 0) return
+    const { runtime, home, cleanup } = tempDirs()
+    try {
+      const env = envFor(runtime, home)
+      const install = captureIo()
+      expect(await runDaemon(["install", "--root", "--dry-run"], install.io, env)).toBe(0)
+      const text = install.out.join("\n")
+      expect(text).toContain("/etc/systemd/system/sensus.service")
+      expect(text).toContain("User=root")
+      expect(text).toContain("SENSUS_RUNTIME_DIR=/run/sensus")
+      expect(text).toContain("SENSUS_HOME=")
+
+      // A root shell defaults to the same system scope without --root.
+      const implicit = captureIo()
+      expect(await runDaemon(["install", "--dry-run"], implicit.io, env)).toBe(0)
+      expect(implicit.out.join("\n")).toContain("/etc/systemd/system/sensus.service")
     } finally {
       cleanup()
     }

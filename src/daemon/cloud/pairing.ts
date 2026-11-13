@@ -358,6 +358,8 @@ export interface PairOptions {
   name?: string
   uid?: number
   allowRoot?: boolean
+  /** Which persistent service scope this pairing should use. */
+  serviceScope?: "user" | "system" | "none"
   fetchImpl?: FetchLike
   now?: () => number
   timeoutMs?: number
@@ -427,6 +429,7 @@ export async function pairWithCloud(opts: PairOptions): Promise<PairResult> {
     unixUser: opts.host.unixUser ?? String(uid ?? "unknown"),
     uid,
     runsAsRoot: uid === 0,
+    ...(opts.serviceScope !== undefined ? { serviceScope: opts.serviceScope } : {}),
     enabled: true,
   }
   const stored = writeCloudConnection(opts.home, connection, { uid, allowRoot: opts.allowRoot })

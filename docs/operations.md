@@ -96,7 +96,7 @@ the daemon runner lazily, so a normal TUI boot never pulls in Elysia.
 | `sensus daemon restart` | Stop (idempotent when not running) then start, reporting each step. |
 | `sensus daemon status` | Print pid + a `/v1/health` probe; exit 0 when healthy, 1 otherwise. Also prints the loopback Scalar docs URL when `/v1/info` is reachable. |
 | `sensus daemon logs [--json|--pretty] [--level <lvl>] [--component <s>] [--follow]` | Render the STRUCTURED log `daemon-log.jsonl` (pretty on a TTY, raw NDJSON when piped). Filters and follow: see "Structured daemon log" below. |
-| `sensus daemon install` / `uninstall` | Write/remove a **user** service unit (systemd/launchd) that runs the daemon in persistent mode; `--dry-run` prints the unit/plan instead of acting and `--linger` enables systemd lingering. Never requires root, never a system-wide path. |
+| `sensus daemon install` / `uninstall` | Write/remove a persistent service. The default is the **user** unit (systemd/launchd); `--root` writes the root-owned **system** unit (Linux systemd); `--user` forces the per-user unit from a root shell. `--dry-run` prints the unit/plan and `--linger` enables systemd lingering (user units only). |
 
 **Kill switch (`sensus kill`).** `sensus daemon stop` targets the daemon this
 environment owns; `sensus kill` is the global escape hatch. It scans the
@@ -111,10 +111,12 @@ works from inside a sensus pane too — which it then kills, shell included. Whe
 the persistent user service is installed the output points at
 `sensus daemon uninstall`, since that unit can start a daemon again.
 
-**Runtime dir** (`sensusRuntimeDir()`; docs/config.md "Locations"):
-`$SENSUS_RUNTIME_DIR` → `$XDG_RUNTIME_DIR/sensus-<uid>` → `/tmp/sensus-<uid>`. The
-dir is `0700`; `daemon.sock`, `daemon.token` and `daemon.pid` are `0600`. The
-socket is unlinked before bind (stale-socket recovery) and on stop.
+**Runtime dir** (`resolveDaemonRuntimeDir()`; docs/config.md "Locations"):
+`$SENSUS_RUNTIME_DIR` → root auto-detects the running system service at
+`/run/sensus` (when `daemon.token` exists) → `$XDG_RUNTIME_DIR/sensus-<uid>` →
+`/tmp/sensus-<uid>`. The dir is `0700`; `daemon.sock`, `daemon.token` and
+`daemon.pid` are `0600`. The socket is unlinked before bind (stale-socket
+recovery) and on stop.
 
 **Transports** (D7/D14): the Unix socket above plus a `127.0.0.1` ephemeral TCP
 listener, both serving the same app and both requiring
@@ -171,15 +173,19 @@ renderer failure defers — it never kills the boot.
 
 ### Persistent service (`install` / `uninstall`)
 
-The always-on layer (D3) is a **user** service unit; it never requires root and
-never touches a system-wide path:
+The always-on layer (D3) has two scopes. The default is a **user** service;
+`--root` (or running `daemon install` / `cloud pair` as root) selects a
+root-owned **system** service. Linux systemd is supported in both scopes;
+macOS has the user launchd agent only (`--root` errors there).
 
-| Platform | Unit | Wiring |
+| Scope | Unit | Wiring |
 |---|---|---|
-| Linux | `~/.config/systemd/user/sensus.service` | `systemctl --user daemon-reload` + `systemctl --user enable --now sensus.service` |
-| macOS | `~/Library/LaunchAgents/com.sensus.daemon.plist` | `launchctl load -w <plist>` / `unload -w <plist>` |
+| user / Linux | `~/.config/systemd/user/sensus.service` | `systemctl --user daemon-reload` + `systemctl --user enable --now sensus.service` |
+| user / macOS | `~/Library/LaunchAgents/com.sensus.daemon.plist` | `launchctl load -w <plist>` / `unload -w <plist>` |
+| system / Linux (`--root`) | `/etc/systemd/system/sensus.service` | `systemctl daemon-reload` + `systemctl enable --now sensus.service` |
+| system / macOS | not implemented | `--root` errors with the Linux-only message |
 
-The unit runs `sensus daemon serve` with `SENSUS_DAEMON_PERSISTENT=1` and
+The user unit runs `sensus daemon serve` with `SENSUS_DAEMON_PERSISTENT=1` and
 `SENSUS_RUNTIME_DIR=<the installing shell's runtime dir>` (so the socket/pid and
 structured log match an interactive `sensus daemon status|logs`), using the same
 self-exec argv as `daemon start` (`daemonSelfArgv`, so the compiled binary and dev
@@ -199,24 +205,42 @@ to `<runtimeDir>/daemon.log`.
   (the start job can finish just before the process exits).
 - `sensus daemon uninstall` unloads/disables it, removes the unit, and reloads
   the manager; idempotent when not installed, and `--dry-run` prints the plan.
-- It is a **user** unit: manage it with `systemctl --user`, never
-  `sudo systemctl` (the system manager cannot see it). On a headless host the
-  user manager only starts at boot when lingering is enabled; without it the
-  service starts at that user's first login (or not at all for a root account
-  reached through `su`).
-- On Linux, install also reads `loginctl show-user <user> -p Linger`. A systemd
-  **user** service is stopped at logout when lingering is off, so the installer
-  prints the exact `loginctl enable-linger <user>` command. `--linger` runs it for
-  you (it can require polkit/root authorization) and fails the install when the
-  command is refused. A headless server can keep the user service with lingering,
-  or manage a system unit manually; install never writes a system-wide unit.
+- A **user** unit is managed with `systemctl --user`, never `sudo systemctl`
+  (the system manager cannot see it). On a headless host the user manager only
+  starts at boot when lingering is enabled; without it the service starts at
+  that user's first login (or not at all for a root account reached through
+  `su`).
+- On Linux, user install also reads `loginctl show-user <user> -p Linger`. A
+  systemd **user** service is stopped at logout when lingering is off, so the
+  installer prints the exact `loginctl enable-linger <user>` command.
+  `--linger` runs it for you (it can require polkit/root authorization) and
+  fails the install when the command is refused.
+- A **system** unit (`--root`) is written to `/etc/systemd/system/sensus.service`
+  and managed with `sudo systemctl`. It requires uid 0 (otherwise a clear
+  sudo/root error), runs as `User=root` with `SENSUS_HOME=/root/.config/sensus`
+  and `SENSUS_RUNTIME_DIR=/run/sensus`, creates `/run/sensus` via
+  `RuntimeDirectory=sensus` (mode 0700), and starts with `multi-user.target`.
+  It starts at boot with no lingering; `--linger` is rejected. `--user` forces
+  the user unit from a root shell. A root shell defaults to this system unit
+  for `daemon install/uninstall` and `cloud pair`.
+- Root CLI/TUI discovery: when uid 0 and `/run/sensus/daemon.token` exists,
+  `resolveDaemonRuntimeDir()` prefers `/run/sensus`; an explicit
+  `SENSUS_RUNTIME_DIR` still wins.
+- Switch-over to the system unit is explicit. `--root` refuses to run as
+  non-root. It scans for an existing root user daemon/unit: on a TTY it asks
+  before disabling/removing the user unit and stopping the daemon;
+  non-interactive runs abort with the commands. A daemon owned by another
+  account is never signalled: the command prints that account's
+  `systemctl --user disable --now sensus` / `sensus daemon stop` steps and
+  aborts.
 - A real write/manager failure is a clear non-zero exit; success names the unit
   path and points at `sensus daemon status`.
 
-The unit path and the command runner are injectable
-(`src/daemon/service.ts`), so tests never touch the real `$HOME` and never
-invoke `systemctl`/`launchctl`. The persistent service is what makes triggers
-useful with no client attached ([`triggers.md`](triggers.md)).
+The unit paths and command runners are injectable (`src/daemon/service.ts` for
+user units, `src/daemon/systemService.ts` for the root system unit), so tests
+never touch the real `$HOME`/`/etc/systemd/system` and never invoke
+`systemctl`/`launchctl`. The persistent service is what makes triggers useful
+with no client attached ([`triggers.md`](triggers.md)).
 
 `sensus cloud pair` uses the same user unit. With a compatible daemon already
 running it reloads it and installs/enables a missing unit without starting a
@@ -237,11 +261,14 @@ tunnel pins the daemon (no idle exit) even if the service is not installed.
 Existing pairings are repaired after an update. `sensus update` (after the
 installer succeeds), every daemon boot, and the TUI boot call
 `reconcileCloudService` (`src/daemon/cloud/reconcile.ts`): when the host is
-paired/enabled and the user unit is missing, it writes/enables the unit with
-`startNow: false` (never a second daemon) and attempts lingering. The running
-daemon and its shells are left alone, and the unit takes over at the next
-login/boot. Linux hosts without a running systemd are reported as unsupported
-instead of retrying; failures never fail the update or boot.
+paired/enabled and the unit for its stored `serviceScope` is missing, it
+writes/enables that unit with `startNow: false` (never a second daemon). The
+user scope attempts lingering; the root system scope uses `/run/sensus` and
+never lingers. A pairing that stored `serviceScope: "none"` (`--no-service`) is
+left alone, and older files without the field default to the user scope. The
+running daemon and its shells are left alone, and the unit takes over at the
+next login/boot. Linux hosts without a running systemd are reported as
+unsupported instead of retrying; failures never fail the update or boot.
 
 ## Setup wizard
 

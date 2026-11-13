@@ -10,7 +10,7 @@
 
 import { join } from "node:path"
 import { atomicWriteText, type AtomicWriteResult } from "../../core/util.ts"
-import { sensusRuntimeDirFrom } from "../../config/config/paths.ts"
+import { resolveDaemonRuntimeDir } from "../paths.ts"
 
 /** `<config>/cloud`. */
 export function cloudDir(home: string): string {
@@ -29,7 +29,7 @@ export function runsPath(home: string): string {
 
 /** The local daemon runtime dir (`SENSUS_RUNTIME_DIR` > XDG > tmp, per uid). */
 export function resolveRuntimeDir(env: NodeJS.ProcessEnv = process.env): string {
-  return sensusRuntimeDirFrom(env)
+  return resolveDaemonRuntimeDir(env)
 }
 
 export function daemonSocketPath(runtimeDir: string): string {

@@ -79,35 +79,40 @@ lists first). Starting the service again unlinks a stale socket automatically.
 
 ## The always-on service does not start after a reboot
 
-**Symptom:** `sensus daemon install` succeeded, but after a reboot `sensus daemon status`
-says not running, and `sudo systemctl enable sensus` reports that the unit does not exist.
+**Symptom:** install succeeded, but after a reboot `sensus daemon status` says not running.
+Depending on the scope, `sudo systemctl status sensus` either reports that the unit does not
+exist or shows the root service.
 
-**Cause:** the always-on service is a systemd **user** service, not a system service.
-`sudo systemctl` looks in the system manager, where the unit is not installed. A user
-service also starts only with that user's user manager; on a headless machine nobody logs
-in, so without lingering it never starts. Running the install through `sudo su` makes this
-worse: the service belongs to root, and root's user manager is not started at boot unless
-lingering is enabled.
+**Cause:** there are two scopes, and they use different managers:
 
-**Fix:** install as the user who should run sensus (not root), and enable lingering so it
-starts at boot:
+- The default is a **per-user** service (`~/.config/systemd/user/sensus.service`).
+  `sudo systemctl` cannot see it; use `systemctl --user`. On a headless machine it only
+  starts at boot with lingering.
+- A root shell defaults to the **root system** service
+  (`/etc/systemd/system/sensus.service`). Use `sudo systemctl`; it starts at boot and does
+  not need lingering. `--user` forces the per-user scope from a root shell.
+
+**Fix — per-user service** (run as the same user, not root):
 
 ```sh
 sensus daemon install --linger
 systemctl --user is-enabled sensus
+systemctl --user status sensus
 ```
 
-The second command should print `enabled`. To repair an existing root install, do this as
-root:
+**Fix — root system service** (run as root):
 
 ```sh
-loginctl enable-linger root
-sensus daemon install --linger
+sensus daemon install --root
+sudo systemctl is-enabled sensus
+sudo systemctl status sensus
 ```
 
-Then reboot and check `sensus daemon status`. If it still fails, `sensus daemon logs`
-points at the startup banner. Running the agent as root is supported for a single-user
-homelab, but not recommended on a shared host.
+A service installed through `sudo su` belongs to root. Decide which scope you want: use
+`--root` deliberately, or run the install as the account whose shells should be controlled.
+Then reboot and check `sensus daemon status`. If it still fails, `sensus daemon logs` points
+at the startup banner. Running the agent as root is supported for a single-user homelab, but
+not recommended on a shared host.
 
 ## After an update, the old version is still running
 

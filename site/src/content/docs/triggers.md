@@ -64,13 +64,15 @@ watching with no Sensus window open, install it as a persistent service:
 
 ```sh
 sensus daemon install --linger  # user service; --linger starts it at boot on a headless host
-sensus daemon uninstall         # remove it again
+sensus daemon install --root    # root system service (Linux; starts at boot, no linger)
+sensus daemon uninstall         # remove the matching service
 ```
 
 Both accept `--dry-run` to print what would happen. `sensus daemon status` shows whether the
-service is up. The service is a **user** service: manage it with `systemctl --user`, not
+service is up. The default is a **user** service: manage it with `systemctl --user`, not
 `sudo systemctl`. Without lingering it starts only when that user logs in, so use `--linger`
-on a server.
+on a server. A root shell defaults to the **root system** service; manage it with
+`sudo systemctl` (no lingering needed). `--user` keeps the per-user service from a root shell.
 
 ## Good to know
 

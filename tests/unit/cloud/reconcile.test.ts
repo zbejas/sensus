@@ -127,6 +127,50 @@ describe("cloud service reconciliation", () => {
     expect(seen.opts?.home).toBe(home)
   })
 
+  test("a system-scoped pairing installs the root unit without starting it", async () => {
+    const home = tempHome()
+    pair(home, { serviceScope: "system", runsAsRoot: true, unixUser: "root", uid: 0 })
+    const seen: Array<{ home: string; runtimeDir: string; startNow?: boolean; uid?: number }> = []
+    const result = await reconcileCloudService({
+      home,
+      env: { HOME: "/root", USER: "root" },
+      platform: "linux",
+      uid: 0,
+      systemInstalled: () => false,
+      installSystem: async (input) => {
+        seen.push(input)
+        return 0
+      },
+    })
+    expect(result.status).toBe("installed")
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.home).toBe(home)
+    expect(seen[0]?.runtimeDir).toBe("/run/sensus")
+    expect(seen[0]?.startNow).toBe(false)
+    expect(seen[0]?.uid).toBe(0)
+  })
+
+  test("a pairing that opted out of a service is never repaired", async () => {
+    const home = tempHome()
+    pair(home, { serviceScope: "none" })
+    let installs = 0
+    const result = await reconcileCloudService({
+      home,
+      env: { HOME: home, USER: "tester" },
+      platform: "linux",
+      install: async () => {
+        installs++
+        return 0
+      },
+      installSystem: async () => {
+        installs++
+        return 0
+      },
+    })
+    expect(result.status).toBe("none")
+    expect(installs).toBe(0)
+  })
+
   test("a failed install is a value, not a throw", async () => {
     const home = tempHome()
     pair(home)

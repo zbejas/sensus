@@ -59,14 +59,19 @@ schema, and resolution order.
 - **Cloud pairing:** `~/.config/sensus/cloud/connection.json` (`0600`) — the pinned
   cloud origin, instance id, device token, fingerprint, user/root metadata, and the
   enabled flag. Identity/scopes stay in `auth/` ([`auth.md`](auth.md)).
-- **Runtime:** `$SENSUS_RUNTIME_DIR` → `$XDG_RUNTIME_DIR/sensus-<uid>` → `/tmp/sensus-<uid>`
-  (`sensusRuntimeDir()`, `src/config/config/paths.ts`). The daemon (`sensus daemon
-  serve`) keeps `daemon.sock` (UDS), `daemon.token` (0600 bearer), `daemon.pid` and
-  `daemon.log` here (D7; [`daemon-api.md`](daemon-api.md)). The dir is `0700`; the
-  socket/token/pid are `0600`. The TUI does not read it. The **persistent service**
-  keeps its raw stdio banner in the state dir instead
+- **Runtime:** `$SENSUS_RUNTIME_DIR` → root auto-detects a running system service at
+  `/run/sensus` (when `daemon.token` exists) → `$XDG_RUNTIME_DIR/sensus-<uid>` →
+  `/tmp/sensus-<uid>` (`resolveDaemonRuntimeDir()`, `src/daemon/paths.ts`). The
+  daemon (`sensus daemon serve`) keeps `daemon.sock` (UDS), `daemon.token` (0600
+  bearer), `daemon.pid` and `daemon.log` here (D7; [`daemon-api.md`](daemon-api.md)).
+  The dir is `0700`; the socket/token/pid are `0600`. The TUI does not read it. The
+  **persistent service** keeps its raw stdio banner in the state dir instead
   (`~/.local/state/sensus/logs/daemon.log`, `daemonServiceLogPath`): the runtime dir
   is tmpfs and the service manager opens stdio before the daemon creates it.
+- **Root system service:** `--root` (or the default in a root shell) uses
+  `/etc/systemd/system/sensus.service`, `SENSUS_HOME=/root/.config/sensus`, and
+  `SENSUS_RUNTIME_DIR=/run/sensus`; systemd creates `/run/sensus` via
+  `RuntimeDirectory=sensus`. It starts at boot and does not use lingering.
 - **Test/CI overrides:** `SENSUS_HOME` redirects all of the above; `SENSUS_CACHE_DIR`
   redirects just the cache; `SENSUS_STATE` redirects just the state dir (the search index).
   `SENSUS_MODELS_DEV_URL` overrides the models.dev index URL.

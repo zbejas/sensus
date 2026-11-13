@@ -116,12 +116,14 @@ event it fired on); an unparseable line never matches when a filter is set.
 
 ### The persistent service
 
-`sensus daemon install` writes a **user** service unit that runs the daemon in
+`sensus daemon install` writes a persistent service that keeps the daemon in
 persistent mode (`SENSUS_DAEMON_PERSISTENT=1`), so triggers keep watching with
-no TUI attached; `uninstall` removes it. On a headless Linux host add `--linger`
-so the user manager starts the service at boot without a login. The units,
-paths, and `--dry-run` are documented in [`operations.md`](operations.md)
-"Daemon".
+no TUI attached; `uninstall` removes it. The default is a **user** unit; on a
+headless Linux host add `--linger` so the user manager starts it at boot without
+a login. `--root` (or a root shell's default) writes the root-owned Linux system
+unit at `/etc/systemd/system/sensus.service` with `/run/sensus`; it starts at
+boot and needs no lingering. The units, paths, and `--dry-run` are documented in
+[`operations.md`](operations.md) "Daemon".
 
 ## Gotchas & invariants
 

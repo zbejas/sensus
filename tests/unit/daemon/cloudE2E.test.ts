@@ -55,6 +55,7 @@ describe("embedded cloud tunnel", () => {
 
     const nonce = "nonce-cloud-e2e"
     const instanceId = "inst_cloud_e2e"
+    const profileUpdatedAt = 1_794_327_000_000
     let hello: Record<string, unknown> | null = null
     const rpcById = new Map<string, Record<string, unknown>>()
     let signatureOk = false
@@ -65,6 +66,22 @@ describe("embedded cloud tunnel", () => {
         const url = new URL(req.url)
         if (url.pathname === "/api/connector/whoami") {
           return Response.json({ ok: true, instanceId, state: "active", scopes: ["view"] })
+        }
+        if (url.pathname === "/api/connector/config") {
+          return Response.json({
+            version: 1,
+            profile: {
+              id: "cfg_e2e",
+              name: "EU production",
+              updatedAt: profileUpdatedAt,
+              scopes: ["view", "chat"],
+              deniedFeatures: ["memory.read"],
+              chatApproval: "confirm",
+              conductorApprovals: "off",
+              maxStreams: 2,
+            },
+            serverTime: Date.now(),
+          })
         }
         if (url.pathname === "/api/connector" && srv.upgrade(req)) return
         return new Response("not found", { status: 404 })
@@ -171,7 +188,21 @@ describe("embedded cloud tunnel", () => {
     expect(features).toContain("transcript.read")
     expect(features).toContain("memory.read")
     expect(features).toContain("memory.write")
+    expect(features).toContain("chat.images")
     expect(features).not.toContain("transcript.delete")
+
+    const pulled = await waitFor(() => (daemon.cloud.status().profile !== null ? daemon.cloud.status() : null))
+    expect(pulled.profile).toMatchObject({
+      id: "cfg_e2e",
+      name: "EU production",
+      updatedAt: profileUpdatedAt,
+      // The host policy grants view only: the cloud profile cannot widen it.
+      scopes: ["view"],
+      deniedFeatures: ["memory.read"],
+      chatApproval: "confirm",
+      conductorApprovals: "off",
+      maxStreams: 2,
+    })
 
     const gotRpc = await waitFor(() => rpcById.get("r1") ?? null)
     expect(gotRpc["t"]).toBe("rpc.res")

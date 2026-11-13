@@ -140,6 +140,7 @@ export function createDaemonApp(opts: DaemonAppOptions) {
     connected: false,
     state: "unpaired",
     lastError: null,
+    profile: null,
   }
   const cloudStatus = (): CloudStatus => opts.cloud?.status() ?? unpairedCloud
   return new Elysia({ name: NAME })

@@ -160,7 +160,7 @@ Scalar reference above.
 | GET | `/v1/models` | `{ ok, endpoints[], errors[] }` — the enriched, credential-free model catalog (P4c-ii) |
 | POST | `/v1/models/probe` | `{ ok, models[], error }` — probe a DRAFT endpoint (provider/baseURL/apiKey) before saving |
 | GET | `/v1/usage` | `{ ok, windowDays, generatedAt, total, byDay[], bySession[], sessions[] }` — usage roll-ups (P4c-ii) |
-| GET | `/v1/cloud/status` | `{ paired, enabled, cloud, instanceId, fingerprint, unixUser, runsAsRoot, connected, state, lastError }` — never the device token/private key |
+| GET | `/v1/cloud/status` | `{ paired, enabled, cloud, instanceId, fingerprint, unixUser, runsAsRoot, connected, state, lastError, profile }` — `profile` is the assigned cloud config profile (or `null`); never the device token/private key |
 | POST | `/v1/cloud/reload` | Re-read `<config>/cloud/connection.json`, stop/reconnect the outbound tunnel, return the new status |
 | GET | `/v1/secrets` | `{ ok, names[], warnings }` — stored secret NAMES (never values) |
 | POST | `/v1/secrets` | `{ ok, name }` or `{ ok:false, message }` — set one secret |
@@ -537,7 +537,7 @@ and lists it after chats with content, and a lone pane is re-attached silently
 | `chat.open` | `{ shellId?, agent?, model?, resume? }` | `{ chatId, state }` |
 | `chat.attach` | `{ chatId }` | `{ chatId, state }` |
 | `chat.detach` | `{ chatId }` | `{ chatId }` |
-| `chat.send` | `{ chatId, text }` | `{ accepted, mode }` — the engine's `handleInput` route (then streams events) |
+| `chat.send` | `{ chatId, text, images?: [{ name, mediaType, data }] }` | `{ accepted, mode }` — the engine's `handleInput` route (then streams events); `data` is base64 |
 | `chat.abort` | `{ chatId }` | `{ ok: true }` |
 | `chat.compact` | `{ chatId }` | `{ ok: true }` (the engine `/compact`) |
 | `chat.retry` | `{ chatId }` | `{ ok: true }` (the engine `/retry`) |

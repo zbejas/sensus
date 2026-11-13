@@ -3,6 +3,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { runCloud, type CloudDaemonStatus } from "../../../src/daemon/cloud/cli"
+import {
+  fetchConnectorConfig,
+  intersectConnectorProfile,
+  parseConnectorConfigProfile,
+  type ConnectorConfigProfile,
+} from "../../../src/daemon/cloud/pairing"
 import { readCloudConnection } from "../../../src/daemon/cloud/state"
 import type { DaemonInfoPayload, DiscoveryResult } from "../../../src/daemon/cloud/discovery"
 import { SENSUS_VERSION } from "../../../src/version"
@@ -86,6 +92,7 @@ function readyDaemon(home: string, over: Partial<CloudDaemonStatus> = {}): Cloud
     unixUser: "tester",
     uid: 1000,
     probeError: null,
+    profile: null,
     ...over,
   }
 }
@@ -476,6 +483,7 @@ describe("sensus cloud pair", () => {
           unixUser: "tester",
           uid: 1000,
           probeError: "GET /v1/cloud/status returned HTTP 503",
+          profile: null,
         }),
       }),
     )
@@ -605,5 +613,121 @@ describe("sensus cloud pair", () => {
     )
     expect(code).toBe(1)
     expect(existsSync(join(home, "cloud", "connection.json"))).toBe(false)
+  })
+
+  test("status shows the assigned cloud profile pulled by the daemon", async () => {
+    const home = tempHome()
+    const { fetchImpl } = fakeFetch()
+    await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      capture().io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, { fetchImpl }),
+    )
+    const profile: ConnectorConfigProfile = {
+      id: "cfg_1",
+      name: "EU production",
+      updatedAt: 1_794_327_000_000,
+      scopes: ["view", "chat"],
+      deniedFeatures: ["memory.read"],
+      chatApproval: "confirm",
+      conductorApprovals: "off",
+      maxStreams: 2,
+    }
+    const statusOpts = baseOpts(home, 1000, { cloudStatus: async () => readyDaemon(home, { profile }) })
+    const json = capture()
+    expect(await runCloud(["status", "--json"], json.io, { HOME: home, SENSUS_HOME: home, USER: "tester" }, statusOpts)).toBe(0)
+    const parsed = JSON.parse(json.out.join("\n"))
+    expect(parsed.daemon.profile).toMatchObject({
+      id: "cfg_1",
+      name: "EU production",
+      updatedAt: 1_794_327_000_000,
+      scopes: ["view", "chat"],
+      deniedFeatures: ["memory.read"],
+      chatApproval: "confirm",
+      conductorApprovals: "off",
+      maxStreams: 2,
+    })
+    const human = capture()
+    expect(await runCloud(["status"], human.io, { HOME: home, SENSUS_HOME: home, USER: "tester" }, statusOpts)).toBe(0)
+    const text = human.out.join("\n")
+    expect(text).toContain("profile     EU production")
+    expect(text).toContain("denied memory.read")
+    expect(text).toContain("max streams 2")
+  })
+})
+
+describe("cloud config profile pull", () => {
+  const connection = { cloud: "https://cloud.example", instanceId: "inst_1", deviceToken: "device-token" }
+  const valid: ConnectorConfigProfile = {
+    id: "cfg_1",
+    name: "EU production",
+    updatedAt: 1_794_327_000_000,
+    scopes: ["view", "chat"],
+    deniedFeatures: ["memory.read"],
+    chatApproval: "confirm",
+    conductorApprovals: "off",
+    maxStreams: 2,
+  }
+
+  test("fetches with device auth and intersects the profile with the local policy", async () => {
+    const calls: Array<{ url: string; headers: Record<string, string> }> = []
+    const result = await fetchConnectorConfig(connection, {
+      fetchImpl: async (input, init) => {
+        calls.push({
+          url: String(input),
+          headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        })
+        return Response.json({ version: 1, profile: valid, serverTime: Date.now() })
+      },
+    })
+    expect(result.ok).toBe(true)
+    expect(result.profile).toEqual(valid)
+    expect(calls[0]?.url).toBe("https://cloud.example/api/connector/config")
+    expect(calls[0]?.headers["x-sensus-instance"]).toBe("inst_1")
+    expect(calls[0]?.headers["authorization"]).toBe("Bearer device-token")
+
+    // The host policy grants view only: the cloud cannot widen it.
+    const narrowed = intersectConnectorProfile(result.profile!, ["view"], 8)
+    expect(narrowed.scopes).toEqual(["view"])
+    expect(narrowed.maxStreams).toBe(2)
+  })
+
+  test("a malformed profile is rejected instead of falling back to a wider default", async () => {
+    const malformed: unknown[] = [
+      { ...valid, scopes: ["view", "bogus"] },
+      { ...valid, scopes: "view" },
+      { ...valid, deniedFeatures: ["not-a-feature"] },
+      { ...valid, chatApproval: "full-auto" },
+      { ...valid, conductorApprovals: "on" },
+      { ...valid, updatedAt: "now" },
+      { ...valid, maxStreams: 99 },
+      { ...valid, maxStreams: "2" },
+    ]
+    for (const profile of malformed) {
+      expect(parseConnectorConfigProfile(profile)).toBeNull()
+    }
+    expect(parseConnectorConfigProfile(valid)).toEqual(valid)
+  })
+
+  test("a bad response is reported as a failed pull, never as an empty profile", async () => {
+    const bad = await fetchConnectorConfig(connection, {
+      fetchImpl: async () => Response.json({ version: 1, profile: "not-an-object" }),
+    })
+    expect(bad.ok).toBe(false)
+    expect(bad.profile).toBeNull()
+    expect(bad.error).toContain("invalid config profile")
+
+    const unsupported = await fetchConnectorConfig(connection, {
+      fetchImpl: async () => Response.json({ version: 2, profile: null }),
+    })
+    expect(unsupported.ok).toBe(false)
+    expect(unsupported.error).toContain("unsupported config pull version")
+
+    const unauthorized = await fetchConnectorConfig(connection, {
+      fetchImpl: async () => Response.json({ error: "unauthorized" }, { status: 401 }),
+    })
+    expect(unauthorized.ok).toBe(false)
+    expect(unauthorized.status).toBe(401)
   })
 })

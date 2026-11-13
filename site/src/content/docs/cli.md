@@ -96,6 +96,9 @@ separate instances.
 
 `sensus cloud status` exits non-zero when the local service cannot answer or is running for a
 different user or configuration home, so a stale service does not look like a healthy pairing.
+When the cloud assigns a config profile to this host, status also shows its name, updated
+time, effective scopes, denied features, approval defaults, and stream limit. The host only
+narrows to that profile; it never writes it into your local policy or configuration.
 `sensus cloud doctor` separates the remaining causes — missing or mismatched identity, a
 pending or revoked token, a tunnel error, a reversed proxy that strips the WebSocket upgrade,
 and a user service that stops at logout. Add `--json` for machine-readable checks.

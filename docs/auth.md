@@ -208,11 +208,19 @@ RPC case without a table row cannot widen the surface. `BLOCKED_OPS` (`terminal.
 `chat.setApproval`, trust mutations, `chat.revert`, `chat.setMcp`, `sudo.answer`) stays
 first and is never allowed whatever the scopes.
 
-### Cloud reads: transcripts and memory
+### Cloud reads: transcripts, memory, and chat images
 
-`hello.features` advertises `transcript.read`, `memory.read` and `memory.write` always, and
-`transcript.delete` only when `deleteTranscripts` is true. The ops are bounded in-process
-reads of the same data the TUI uses; none of them proxies arbitrary REST.
+`hello.features` advertises `transcript.read`, `memory.read`, `memory.write`, and
+`chat.images` always (the embedded broker validates and forwards images);
+`transcript.delete` is advertised only when `deleteTranscripts` is true. The ops are bounded
+in-process reads of the same data the TUI uses; none of them proxies arbitrary REST.
+
+`chat.send` may carry `images: [{ name, mediaType, data }]` with base64 data. The broker
+accepts PNG/JPEG/WebP/GIF only, at most 2 images, 1.25 MiB each and 2.5 MiB total raw. It
+strictly validates canonical base64 and sniffs the magic bytes; a mismatched label is
+`invalid_request`. The cloud upload route enforces the same caps. Outbound image records on
+`chat.message`/`chat.state`/`chat.plan` are reduced to `{ id, name, mediaType, bytes, width?, height? }`
+before they reach the cloud, so an absolute host `path` never leaves the machine.
 
 | Op | Scope | Result (bounded) |
 |---|---|---|
@@ -230,6 +238,22 @@ single path component. Traversal (`../x`, `a/b/c`) is `not_found`. A store-domai
 (cap full, ambiguous `old_text`) comes back as a normal `rpc.res` whose result has
 `ok:false`, exactly like the REST route's 200.
 
+### Cloud config profile pull
+
+The cloud may assign a narrowing-only config profile to a paired instance. The host pulls
+it read-only from `GET /api/connector/config` (device token + `X-Sensus-Instance`) on tunnel
+ready and, at most once a minute, when `status()` is read. The pull is optional: a failure,
+an unsupported `version`, or a malformed profile keeps the last cached value (or `null`) and
+never fails the tunnel.
+
+The response is `{ version: 1, profile: { id, name, updatedAt, scopes, deniedFeatures,
+chatApproval, conductorApprovals, maxStreams } | null, serverTime }`. The host caches by
+`profile.updatedAt` and exposes the profile through `/v1/cloud/status` and
+`sensus cloud status`. It intersects the profile's scopes with the local policy and clamps
+`maxStreams`, so a broken or malicious cloud response can only narrow, never widen. A pull
+never writes `policy.json` or Sensus config; the cloud enforces its ceiling and the host
+broker remains the enforcement point.
+
 ## Gotchas & invariants
 
 - **Do not regenerate the identity after pairing.** The cloud stores the public key;
@@ -237,6 +261,9 @@ single path component. Traversal (`../x`, `a/b/c`) is `not_found`. A store-domai
   preserves an existing identity and errors on a corrupt file rather than replacing it.
 - **The private key must never leave the host.** It is `0600`, and no command prints it.
 - **`view` is implied.** A policy with `["chat"]` normalizes to `["view", "chat"]`.
+- **A cloud config profile is a ceiling, not host config.** The host pulls it for display
+  and narrows its own view; it never writes `policy.json` or Sensus config, and a failed
+  pull keeps the last cached profile.
 - **Root is opt-in for pairing.** Identity/policy writes default-refuse uid 0; the
   daemon itself runs as root only because the user started it that way.
 - **No inbound listener.** The host dials one outbound WSS to the pinned origin.

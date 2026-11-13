@@ -423,7 +423,7 @@ describe("op table and hello features", () => {
       daemonFacts: async () => ({ state: "running" }),
     }
 
-    async function helloFeatures(deleteTranscripts: boolean): Promise<string[]> {
+    async function helloFeatures(deleteTranscripts: boolean, chatImages = false): Promise<string[]> {
       const before = FakeSocket.instances.length
       const tunnel = new CloudTunnel({
         cloudUrl: "https://cloud.example",
@@ -431,7 +431,7 @@ describe("op table and hello features", () => {
         deviceToken: "token",
         identity: generateIdentity(),
         policy: { ...defaultPolicy(), deleteTranscripts },
-        broker,
+        broker: { ...broker, chatImages },
         connectorVersion: "9.9.9",
         host: { hostname: "box", platform: "linux", arch: "x64" },
         WebSocketImpl: FakeSocket as unknown as typeof WebSocket,
@@ -455,9 +455,13 @@ describe("op table and hello features", () => {
     expect(defaults).toContain("memory.read")
     expect(defaults).toContain("memory.write")
     expect(defaults).not.toContain("transcript.delete")
+    expect(defaults).not.toContain("chat.images")
 
     const enabled = await helloFeatures(true)
     expect(enabled).toContain("transcript.delete")
+
+    const withImages = await helloFeatures(false, true)
+    expect(withImages).toContain("chat.images")
   })
 })
 

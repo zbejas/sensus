@@ -21,7 +21,7 @@ import { SENSUS_VERSION } from "../../version.ts"
 import { checkUserLinger, installService, type LingerStatus } from "../service.ts"
 import { discoverDaemon, requestOverUnix, type DaemonInfoPayload } from "./discovery.ts"
 import { daemonSocketPath, resolveRuntimeDir } from "./paths.ts"
-import { pairWithCloud, promptHidden, whoami } from "./pairing.ts"
+import { pairWithCloud, promptHidden, whoami, parseConnectorConfigProfile, type ConnectorConfigProfile } from "./pairing.ts"
 import { probeConnectorUpgrade } from "./probe.ts"
 import {
   clearCloudConnection,
@@ -83,6 +83,8 @@ export interface CloudDaemonStatus {
   uid: number | null
   /** Non-null when `/v1/cloud/status` could not be read. */
   probeError: string | null
+  /** The assigned cloud config profile, when the daemon has pulled one. */
+  profile: ConnectorConfigProfile | null
 }
 
 const USAGE = `sensus cloud — pair this host with a Sensus Cloud panel
@@ -274,6 +276,7 @@ async function probeCloudDaemon(opts: CloudCliOptions, home: string, runtimeDir:
       unixUser: null,
       uid: null,
       probeError: unreachable ? discovery.message : null,
+      profile: null,
     }
   }
   const info = discovery.discovery.info
@@ -297,7 +300,7 @@ async function probeCloudDaemon(opts: CloudCliOptions, home: string, runtimeDir:
         res.status === 0
           ? "GET /v1/cloud/status closed without a response"
           : `GET /v1/cloud/status returned HTTP ${res.status}`
-      return { ...base, state: "error", connected: false, lastError: message, probeError: message }
+      return { ...base, state: "error", connected: false, lastError: message, probeError: message, profile: null }
     }
     let parsed: unknown
     try {
@@ -307,18 +310,20 @@ async function probeCloudDaemon(opts: CloudCliOptions, home: string, runtimeDir:
     }
     if (!isRecord(parsed)) {
       const message = "GET /v1/cloud/status returned an invalid payload"
-      return { ...base, state: "error", connected: false, lastError: message, probeError: message }
+      return { ...base, state: "error", connected: false, lastError: message, probeError: message, profile: null }
     }
+    const rawProfile = parsed["profile"]
     return {
       ...base,
       state: typeof parsed["state"] === "string" ? parsed["state"] : "unknown",
       connected: parsed["connected"] === true,
       lastError: typeof parsed["lastError"] === "string" ? parsed["lastError"] : null,
       probeError: null,
+      profile: rawProfile === null || rawProfile === undefined ? null : parseConnectorConfigProfile(rawProfile),
     }
   } catch (e) {
     const message = errorMessage(e)
-    return { ...base, state: "error", connected: false, lastError: message, probeError: message }
+    return { ...base, state: "error", connected: false, lastError: message, probeError: message, profile: null }
   }
 }
 
@@ -553,6 +558,18 @@ function printStatus(
   io.out(`sensus cloud: runs as     ${connection.unixUser}${connection.runsAsRoot ? " (root)" : ""}`)
   io.out(`sensus cloud: enabled     ${connection.enabled ? "yes" : "no"}`)
   printDaemonStatus(io, daemon)
+  if (daemon.profile !== null) {
+    const p = daemon.profile
+    io.out(`sensus cloud: profile     ${p.name} (updated ${new Date(p.updatedAt).toISOString()})`)
+    const summary = [
+      `scopes ${p.scopes.length > 0 ? p.scopes.join(",") : "none"}`,
+      p.deniedFeatures.length > 0 ? `denied ${p.deniedFeatures.join(",")}` : null,
+      `chat ${p.chatApproval}`,
+      `conductor ${p.conductorApprovals}`,
+      p.maxStreams !== null ? `max streams ${p.maxStreams}` : null,
+    ].filter((part): part is string => part !== null)
+    io.out(`sensus cloud: profile set ${summary.join(" · ")}`)
+  }
   if (ctx.homeMismatch) {
     io.err(`sensus cloud: warning: the running daemon uses ${daemon.home ?? "(unknown)"}, not ${ctx.home}.`)
     io.err("sensus cloud: this pairing will not be used until the daemon runs with the same SENSUS_HOME.")

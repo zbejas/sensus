@@ -218,14 +218,18 @@ class FakeLocalDaemon implements LocalDaemonLike {
   readonly clientId = "local_1"
   readonly connected = true
   readonly sent: string[] = []
+  readonly requests: Array<{ op: string; params: Record<string, unknown> | undefined; timeoutMs: number | undefined }> = []
   private frameHandler: ((raw: string, frame: DaemonFrame) => void) | null = null
 
   async connect(): Promise<{ clientId: string; protocol: string; version: string }> {
     return { clientId: this.clientId, protocol: "v1", version: "9.9.9" }
   }
 
-  async request(op: string): Promise<Record<string, unknown>> {
+  async request(op: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, unknown>> {
+    this.requests.push({ op, params, timeoutMs })
+    if (op === "terminal.open") return { shellId: "shell_1" }
     if (op === "chat.attach" || op === "chat.open") return { chatId: "chat_1", state: { messages: [] } }
+    if (op === "chat.send") return { accepted: true, mode: "sent" }
     return {}
   }
 
@@ -267,6 +271,17 @@ async function chatImageHarness(): Promise<{ broker: RelayBroker; client: FakeLo
   const opened = await broker.openStream("stream-1", "chat", { chatId: "chat_1" }, (frame) => emitted.push(frame))
   expect(opened.ok).toBe(true)
   return { broker, client, emitted }
+}
+
+function runHarness(): { broker: RelayBroker; client: FakeLocalDaemon } {
+  const client = new FakeLocalDaemon()
+  const broker = new RelayBroker({
+    policy: { ...defaultPolicy(), scopes: ["view", "orchestrator"] },
+    discover: async () => ({ ok: false, code: "daemon_socket_missing", message: "not running", state: "stopped" }),
+    dataDir: "/nonexistent-cloud-runs",
+    clientFactory: () => client,
+  })
+  return { broker, client }
 }
 
 function sendImages(broker: RelayBroker, images: unknown, text = "look"): ReturnType<RelayBroker["streamSend"]> {
@@ -369,5 +384,50 @@ describe("cloud chat images", () => {
     const tool = payloads[2]?.["message"] as { tool: { args: { path: string } } }
     expect(tool.tool.args.path).toBe("/tmp/notes.md")
     expect(JSON.stringify(payloads)).not.toContain("/home/tester")
+  })
+})
+
+describe("cloud run approval", () => {
+  test("applies full-auto and confirm with the host slash command before the prompt", async () => {
+    const fullAuto = runHarness()
+    const opened = await fullAuto.broker.openStream(
+      "run-1",
+      "run",
+      { prompt: "do the work", approval: "full-auto" },
+      () => {},
+    )
+    expect(opened.ok).toBe(true)
+    const fullAutoSends = fullAuto.client.requests.filter((entry) => entry.op === "chat.send")
+    expect(fullAutoSends.map((entry) => entry.params?.["text"])).toEqual(["/yolo", "do the work"])
+    expect(fullAutoSends.map((entry) => entry.params?.["chatId"])).toEqual(["chat_1", "chat_1"])
+    await fullAuto.broker.closeStream("run-1", "test_done")
+
+    const confirm = runHarness()
+    const openedConfirm = await confirm.broker.openStream(
+      "run-2",
+      "run",
+      { prompt: "review only", approval: "confirm" },
+      () => {},
+    )
+    expect(openedConfirm.ok).toBe(true)
+    const confirmSends = confirm.client.requests.filter((entry) => entry.op === "chat.send")
+    expect(confirmSends.map((entry) => entry.params?.["text"])).toEqual(["/yolo off", "review only"])
+    await confirm.broker.closeStream("run-2", "test_done")
+  })
+
+  test("leaves the host default alone when approval is absent", async () => {
+    const { broker, client } = runHarness()
+    const opened = await broker.openStream("run-3", "run", { prompt: "no override" }, () => {})
+    expect(opened.ok).toBe(true)
+    const sends = client.requests.filter((entry) => entry.op === "chat.send")
+    expect(sends.map((entry) => entry.params?.["text"])).toEqual(["no override"])
+    await broker.closeStream("run-3", "test_done")
+  })
+
+  test("rejects an unknown approval value before opening a shell or chat", async () => {
+    const { broker, client } = runHarness()
+    const opened = await broker.openStream("run-4", "run", { prompt: "x", approval: "inherit" }, () => {})
+    expect(opened).toMatchObject({ ok: false, code: "invalid_request" })
+    expect(client.requests).toHaveLength(0)
   })
 })

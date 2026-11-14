@@ -1016,6 +1016,14 @@ export class RelayBroker {
     }
     const agent = optionalString(params["agent"])
     const model = optionalString(params["model"])
+    // The cloud may pin the new run chat's approval mode to the host's
+    // new-chat default (or a config profile's forced confirm). Apply it with
+    // the host's own slash command before the prompt, exactly like a
+    // cloud-opened browser chat. This does not unblock `chat.setApproval`.
+    const approval = params["approval"]
+    if (approval !== undefined && approval !== "confirm" && approval !== "full-auto") {
+      return { ok: false, code: "invalid_request", message: "run.approval must be confirm or full-auto" }
+    }
 
     // Headless runs get a dedicated shell so the chat has terminal context and
     // can be released deterministically (terminal.kill closes the bound chat).
@@ -1045,6 +1053,23 @@ export class RelayBroker {
       return { ok: false, code: "daemon_error", message: "chat.open returned no chatId" }
     }
     record.chatId = chatId
+
+    if (approval !== undefined) {
+      try {
+        const applied = await record.client.request(
+          "chat.send",
+          { chatId, text: approval === "full-auto" ? "/yolo" : "/yolo off" },
+          10_000,
+        )
+        if (applied["accepted"] === false) {
+          await record.client.request("terminal.kill", { shellId }, 2_000).catch(() => {})
+          return { ok: false, code: "chat_not_ready", message: "the run chat could not take its approval default" }
+        }
+      } catch (error) {
+        await record.client.request("terminal.kill", { shellId }, 2_000).catch(() => {})
+        return { ok: false, code: this.errorCode(error), message: errorMessage(error) }
+      }
+    }
 
     const timeoutSec = this.runTimeoutSec(params["timeoutSec"])
     const recordRun = this.opts.recordRun

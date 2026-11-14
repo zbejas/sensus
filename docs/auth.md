@@ -235,6 +235,12 @@ single root daemon switching users is deliberately not supported.
 | `control` | Terminal controller: open/input/resize/facts/detach. No `terminal.kill` from the cloud. Also memory writes and (with `deleteTranscripts`) transcript deletion |
 | `orchestrator` | Headless runs: dedicated shell + chat, prompt, prompt answers, cleanup |
 
+A cloud `run` stream may carry `approval: "confirm" | "full-auto"`, the effective new-chat
+default the cloud selected for that host. The broker validates it, opens the run chat, and
+applies it with the host's own `/yolo` or `/yolo off` command before sending the prompt;
+`inherit` is never sent and any other value is `invalid_request`. This is the same
+cloud-opened-chat default the web UI uses; it does not unblock `chat.setApproval`.
+
 The cloud intersects the host policy with the scopes approved at pairing; the
 host broker still enforces the policy for every op. Restart/reload the daemon after
 changing scopes (`sensus cloud` reloads automatically; otherwise restart it).

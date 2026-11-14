@@ -1328,12 +1328,16 @@ async function doctorCommand(
     add("wss", probe.ok ? "ok" : "fail", probe.detail)
   }
 
-  const linger = await (opts.linger ?? checkUserLinger)({ env })
-  if (!linger.applicable) add("linger", "skip", "not a systemd user session")
-  else if (linger.enabled === true) add("linger", "ok", `enabled for ${linger.user}`)
-  else if (linger.enabled === false) {
-    add("linger", "warn", `disabled; run \`${linger.enableCommand ?? `loginctl enable-linger ${linger.user}`}\``)
-  } else add("linger", "skip", linger.detail ?? "could not read the lingering state")
+  if (connection.serviceScope === "system") {
+    add("linger", "skip", "root system service starts at boot; lingering is not used")
+  } else {
+    const linger = await (opts.linger ?? checkUserLinger)({ env })
+    if (!linger.applicable) add("linger", "skip", "not a systemd user session")
+    else if (linger.enabled === true) add("linger", "ok", `enabled for ${linger.user}`)
+    else if (linger.enabled === false) {
+      add("linger", "warn", `disabled; run \`${linger.enableCommand ?? `loginctl enable-linger ${linger.user}`}\``)
+    } else add("linger", "skip", linger.detail ?? "could not read the lingering state")
+  }
 
   return finish()
 }

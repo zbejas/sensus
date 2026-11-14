@@ -952,6 +952,33 @@ describe("sensus cloud pair", () => {
     expect(checks.find((check) => check.id === "linger")?.message).toContain("loginctl enable-linger")
   })
 
+  test("doctor skips the lingering check for a root system pairing", async () => {
+    const home = tempHome()
+    const { fetchImpl } = fakeFetch()
+    await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+      capture().io,
+      { HOME: home, SENSUS_HOME: home, USER: "root" },
+      baseOpts(home, 0, { fetchImpl }),
+    )
+    const doctor = capture()
+    const code = await runCloud(
+      ["doctor", "--json"],
+      doctor.io,
+      { HOME: home, SENSUS_HOME: home, USER: "root" },
+      baseOpts(home, 0, {
+        fetchImpl,
+        discover: async () => runningWith({ home, uid: 0, unixUser: "root" }),
+        cloudStatus: async () => readyDaemon(home, { uid: 0, unixUser: "root" }),
+      }),
+    )
+    expect(code).toBe(0)
+    const parsed = JSON.parse(doctor.out.join("\n"))
+    const checks = parsed.checks as Array<{ id: string; status: string; message: string }>
+    expect(checks.find((check) => check.id === "linger")?.status).toBe("skip")
+    expect(checks.find((check) => check.id === "linger")?.message).toContain("starts at boot")
+  })
+
   test("a 401 whoami discards the newly stored token", async () => {
     const home = tempHome()
     const { io } = capture()

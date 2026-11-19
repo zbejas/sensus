@@ -509,6 +509,14 @@ export class CloudTunnel {
       this.stopBecause("unsupported_protocol")
       return
     }
+    if (code === 4409) {
+      this.report(
+        "warn",
+        "another Sensus process/connection took over this cloud instance; stopping the tunnel (is a second daemon running?)",
+      )
+      this.stopBecause("replaced")
+      return
+    }
     if (code === 4403) {
       this.report("info", "cloud says the instance is pending approval")
     } else if (code === 4429) {

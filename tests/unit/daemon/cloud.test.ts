@@ -431,3 +431,65 @@ describe("cloud run approval", () => {
     expect(client.requests).toHaveLength(0)
   })
 })
+
+type SocketListener = (event: unknown) => void
+
+/** A WebSocket that reports the cloud's duplicate-connection close immediately. */
+class ReplacedSocket {
+  static created = 0
+  bufferedAmount = 0
+  private readonly listeners = new Map<string, SocketListener[]>()
+
+  constructor() {
+    ReplacedSocket.created += 1
+    queueMicrotask(() => {
+      this.emit("open", {})
+      this.emit("close", { code: 4409, reason: "replaced_by_new_connection" })
+    })
+  }
+
+  addEventListener(type: string, listener: SocketListener): void {
+    const list = this.listeners.get(type) ?? []
+    list.push(listener)
+    this.listeners.set(type, list)
+  }
+
+  send(): void {}
+  close(): void {}
+
+  private emit(type: string, event: unknown): void {
+    for (const listener of this.listeners.get(type) ?? []) listener(event)
+  }
+}
+
+describe("cloud tunnel duplicate connections", () => {
+  test("a 4409 replaced_by_new_connection stops and never reconnects", async () => {
+    ReplacedSocket.created = 0
+    const stopped: string[] = []
+    const warnings: string[] = []
+    const tunnel = new CloudTunnel({
+      cloudUrl: "https://cloud.example",
+      instanceId: "inst_1",
+      deviceToken: "token",
+      identity: generateIdentity(),
+      policy: defaultPolicy(),
+      broker: fakeBroker(),
+      connectorVersion: "9.9.9",
+      host: { hostname: "box", platform: "linux", arch: "x64" },
+      WebSocketImpl: ReplacedSocket as unknown as typeof WebSocket,
+      reconnectBaseMs: 1,
+      reconnectMaxMs: 1,
+      onStopped: (reason) => stopped.push(reason),
+      onLog: (level, message) => {
+        if (level === "warn") warnings.push(message)
+      },
+    })
+    tunnel.start()
+    await Bun.sleep(30)
+    expect(tunnel.state).toBe("stopped")
+    expect(stopped).toEqual(["replaced"])
+    expect(warnings.join("\n")).toContain("took over this cloud instance")
+    // The old behavior reconnected after the close; only one socket may exist.
+    expect(ReplacedSocket.created).toBe(1)
+  })
+})

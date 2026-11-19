@@ -197,10 +197,19 @@ class EmbeddedCloudClient implements CloudClient {
       },
       onStopped: (reason) => {
         this.tunnelState = "stopped"
-        if (reason === "revoked" || reason === "unauthorized" || reason === "unsupported_protocol") {
+        if (
+          reason === "replaced" ||
+          reason === "revoked" ||
+          reason === "unauthorized" ||
+          reason === "unsupported_protocol"
+        ) {
           this.terminalStop = true
         }
-        log.info("cloud tunnel stopped", { reason, cloud: read.connection?.cloud })
+        if (reason === "replaced") {
+          log.warn("cloud tunnel stopped: another connection replaced this daemon; not reconnecting (is a second daemon running?)")
+        } else {
+          log.info("cloud tunnel stopped", { reason, cloud: read.connection?.cloud })
+        }
       },
     })
     this.tunnel = tunnel

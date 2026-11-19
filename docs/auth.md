@@ -217,6 +217,13 @@ as separate instances (the cloud names them `host (root)` / `host (alice)` unles
 the pairing code supplied a name). This is the supported multi-daemon model; a
 single root daemon switching users is deliberately not supported.
 
+The cloud allows one live connection per instance. When a second process/connection
+takes over, it closes the superseded socket with `4409 replaced_by_new_connection`.
+The daemon reports that another Sensus process took over the instance, stops the
+tunnel, and does **not** reconnect, so two daemons cannot ping-pong. A 4409 almost
+always means a second daemon is running for the same config home; stop the duplicate
+(`sensus kill`, then `sensus daemon start`) rather than restarting both.
+
 ### Fingerprint and signature
 
 - Fingerprint: `SHA-256(SPKI DER)`, first 8 bytes, lowercase hex, rendered

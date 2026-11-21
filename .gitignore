@@ -5,5 +5,3 @@ dist/
 .sensus-test/typescript
 .emitProbe*.tsx
 screenshots/
-.impeccable/
-.playwright-mcp/

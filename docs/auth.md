@@ -26,7 +26,7 @@ alone cannot authenticate.
 | `src/daemon/cloud/tunnel.ts` | Outbound WSS, challenge signature, heartbeat, reconnect |
 | `src/daemon/cloud/probe.ts` | HTTPS probe of `/api/connector` when a WS upgrade fails (HTTP status/content type) |
 | `src/daemon/cloud/broker.ts` | Typed broker: op allowlist, trust stripping, run lifecycle, bounded transcript/memory ops |
-| `src/daemon/cloud/ops.ts` | `TUNNEL_OPS` op → scope (+ `deleteTranscripts` policy gate) table consulted before the switch |
+| `src/daemon/cloud/ops.ts` | `TUNNEL_OPS` op → scope (+ `deleteTranscripts`/`updateDaemon` policy gate) table consulted before the switch |
 | `src/daemon/cloud/discovery.ts` / `daemonClient.ts` | Local daemon token/port discovery + one local WS per cloud stream |
 | `src/daemon/cloud/client.ts` | Daemon-owned lifecycle: start/stop/reload, lifetime pin |
 | `src/daemon/cloud/reconcile.ts` | Repairs a missing user or root system service for an existing pairing (update/daemon/TUI boot; never starts a second daemon) |
@@ -44,7 +44,7 @@ alone cannot authenticate.
 sensus cloud pair --cloud https://cloud.example [--code ABCD-EFGH] \
   [--allow view,chat,control,orchestrator] [--allow-root] [--no-wait] \
   [--no-service] [--no-linger] [--root|--user]
-sensus cloud scopes [--allow view,chat,control,orchestrator] [--delete-transcripts on|off] [--allow-root] [--json]
+sensus cloud scopes [--allow view,chat,control,orchestrator] [--delete-transcripts on|off] [--update on|off] [--allow-root] [--json]
 sensus cloud status [--json]
 sensus cloud doctor [--json]
 sensus cloud disable | enable | unpair
@@ -70,9 +70,17 @@ sensus cloud disable | enable | unpair
   (20 s by default) and exits non-zero with the daemon's `lastError` when it does
   not; `--no-wait` saves the pairing and returns immediately. A running daemon that
   reads another config home or runs as another uid is refused before pairing.
-- Without `--allow`, an interactive `pair` lists the scopes (`view`, `chat`, `control`,
-  `orchestrator`) with a short explanation and asks which to grant. The default is
-  `view,chat,control`; non-interactive pairing keeps the safe `view` default.
+- Without `--allow`, an interactive `pair` shows a numbered menu:
+  `1) Standard` (`view,chat,control`), `2) Conductor` (adds `orchestrator`),
+  `3) YOLO` (every scope plus daemon start, transcript deletion, and host updates), and
+  `4) Custom` (a comma-separated list, default `view,chat,control`, `all` accepted).
+  Empty input, `1`, or `standard` keeps the default; `2`/`conductor` and `3`/`yolo` are
+  accepted by name too, and unknown input re-asks. YOLO is the only preset that turns on
+  `startDaemon`, `deleteTranscripts`, and `updateDaemon`, and it warns that the cloud may
+  start the daemon, delete transcripts permanently (no trash), and replace/restart Sensus
+  (ending live shells, chats, and turns). Re-pairing with any other preset preserves the
+  existing opt-in flags. Non-interactive pairing keeps the safe `view` default;
+  `--allow all` grants every scope without touching those flags.
 - `--code` is optional on a TTY: the CLI prompts with echo disabled.
 - `scopes` shows the local policy; with `--allow`, it writes new scopes and reloads the
   daemon so the broker picks them up. Narrowing needs no new pairing code. The cloud caps
@@ -83,6 +91,11 @@ sensus cloud disable | enable | unpair
   "Cloud reads" below. Turning it on prints an explicit warning: deleted transcripts are
   removed **permanently with no trash** and disappear from session search. The policy write
   keeps the existing uid/root protections (`--allow-root`, otherwise refused as root).
+- `--update on|off` sets the host-local self-update opt-in. It is **off by default** and
+  also needs `control`. On means the cloud may ask the daemon to install a release: the
+  Sensus binary is replaced and the daemon restarts, so live shells, chats, and running
+  turns end. Turning it on prints that warning. `sensus cloud scopes` shows
+  `host updates  off` or `on (cloud may replace the binary and restart the daemon)`.
 - `status` reports the pinned origin, instance, fingerprint, scopes, Unix user/root,
   and the live tunnel state. It never prints the device token or private key. The
   JSON includes the CLI's `home`/`runtimeDir` and a `daemon` object with the
@@ -179,7 +192,8 @@ A pairing as root defaults to the root-owned system unit
   "startDaemon": false,
   "allowedCwd": [],
   "maxStreams": 8,
-  "deleteTranscripts": false
+  "deleteTranscripts": false,
+  "updateDaemon": false
 }
 ```
 
@@ -217,6 +231,15 @@ as separate instances (the cloud names them `host (root)` / `host (alice)` unles
 the pairing code supplied a name). This is the supported multi-daemon model; a
 single root daemon switching users is deliberately not supported.
 
+The cloud allows one live connection per instance. When a second process/connection
+takes over, it closes the superseded socket with `4409 replaced_by_new_connection`.
+The daemon reports that another Sensus process took over the instance, stops the
+tunnel, and does **not** reconnect, so two daemons cannot ping-pong. When both
+sides report `daemon.startedAt`, the cloud keeps the newer process and refuses an
+older one that reconnects with `4409 older_daemon_process`. A 4409 almost always
+means a second daemon is running for the same config home; stop the duplicate
+(`sensus kill`, then `sensus daemon start`) rather than restarting both.
+
 ### Fingerprint and signature
 
 - Fingerprint: `SHA-256(SPKI DER)`, first 8 bytes, lowercase hex, rendered
@@ -232,7 +255,7 @@ single root daemon switching users is deliberately not supported.
 |---|---|
 | `view` | Terminal list/attach as observer/detach; chat list/attach; daemon info/health; bounded transcript list/read/export/context; memory list/read |
 | `chat` | Create chats, send, abort, compact, retry, answer `ask_user`, commit plans, answer approvals |
-| `control` | Terminal controller: open/input/resize/facts/detach. No `terminal.kill` from the cloud. Also memory writes and (with `deleteTranscripts`) transcript deletion |
+| `control` | Terminal controller: open/input/resize/facts/detach. No `terminal.kill` from the cloud. Also memory writes, transcript deletion (with `deleteTranscripts`), and a cloud-triggered daemon update (with `updateDaemon`) |
 | `orchestrator` | Headless runs: dedicated shell + chat, prompt, prompt answers, cleanup |
 
 A cloud `run` stream may carry `approval: "confirm" | "full-auto"`, the effective new-chat
@@ -256,8 +279,10 @@ first and is never allowed whatever the scopes.
 
 `hello.features` advertises `transcript.read`, `memory.read`, `memory.write`, and
 `chat.images` always (the embedded broker validates and forwards images);
-`transcript.delete` is advertised only when `deleteTranscripts` is true. The ops are bounded
-in-process reads of the same data the TUI uses; none of them proxies arbitrary REST.
+`transcript.delete` is advertised only when `deleteTranscripts` is true, and
+`daemon.update` only when `updateDaemon` is true **and** the policy grants `control`. The
+ops are bounded in-process reads of the same data the TUI uses; none of them proxies
+arbitrary REST.
 
 `chat.send` may carry `images: [{ name, mediaType, data }]` with base64 data. The broker
 accepts PNG/JPEG/WebP/GIF only, at most 2 images, 1.25 MiB each and 2.5 MiB total raw. It
@@ -268,6 +293,7 @@ before they reach the cloud, so an absolute host `path` never leaves the machine
 
 | Op | Scope | Result (bounded) |
 |---|---|---|
+| `daemon.update` | `control` + `updateDaemon` | `{ ok: true, action: "check" \| "install", currentVersion, latestVersion \| null, updateAvailable, updated, restarting, message? }`; params `{ check?: boolean, version?: string }` (`version: "latest"` means the latest release). `check` never installs. Refusals: `update_disabled` without the flag, `update_unavailable` without a local updater/source checkout/no canonical prefix, `update_check_failed`, `update_failed`. A successful install replaces the binary and restarts the daemon (live shells/chats/turns end) |
 | `transcript.list` | `view` | `{ sessions, nextOffset }`; newest-first, limit 1–50 (default 20); rows never include the absolute `path` |
 | `transcript.read` | `view` | `{ id, title, tags, total, offset, messages }`; message window 1–50 (default 20); each `content` clipped to 16 000 chars with `truncated`; `thinking`/`images`/`usage` omitted |
 | `transcript.export` | `view` | `{ content, contentType, truncated, bytes }`; md or raw jsonl, hard-capped at 2 MiB with the original byte length in `bytes` |

@@ -235,6 +235,22 @@ export interface SensusConfig {
   /** Daemon idle policy (docs/config.md "daemon", D3/D9): a persistent daemon
    * never grace-exits; `SENSUS_DAEMON_PERSISTENT` overrides it. Default false. */
   daemonPersistent: boolean
+  /** No-client hold for a single tool approval before the turn is aborted
+   * (docs/config.md "prompt timeouts"); `SENSUS_DAEMON_APPROVAL_TIMEOUT_MS`
+   * overrides it. `0` holds forever. Default 3600000 (one hour). */
+  approvalTimeoutMs: number
+  /** No-client hold for an `ask_user` question before the turn is aborted;
+   * `SENSUS_DAEMON_ASK_TIMEOUT_MS` overrides it. `0` holds forever.
+   * Default 3600000 (one hour). */
+  askTimeoutMs: number
+  /** No-client hold for an approval-batch plan before the turn is aborted;
+   * `SENSUS_DAEMON_PLAN_TIMEOUT_MS` overrides it. `0` holds forever.
+   * Default 3600000 (one hour). */
+  planTimeoutMs: number
+  /** No-client hold for a sudo prompt before the turn is aborted;
+   * `SENSUS_DAEMON_SUDO_TIMEOUT_MS` overrides it. `0` holds forever.
+   * Default 3600000 (one hour). */
+  sudoTimeoutMs: number
   /** Launch update alert (docs/config.md "updateCheck", docs/operations.md
    * "Update"): check the latest release once a day and toast when a newer one
    * exists; `SENSUS_UPDATE_CHECK` overrides it. Default true. */

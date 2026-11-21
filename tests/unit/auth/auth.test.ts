@@ -84,6 +84,14 @@ describe("host policy", () => {
     expect(normalizePolicy({ version: 1, scopes: ["view"], deleteTranscripts: "yes" })?.deleteTranscripts).toBe(false);
   });
 
+  test("updateDaemon defaults off and only an explicit true opts in", () => {
+    expect(defaultPolicy().updateDaemon).toBe(false);
+    expect(normalizePolicy({ version: 1, scopes: ["view"] })?.updateDaemon).toBe(false);
+    expect(normalizePolicy({ version: 1, scopes: ["view"], updateDaemon: true })?.updateDaemon).toBe(true);
+    expect(normalizePolicy({ version: 1, scopes: ["view"], updateDaemon: 1 })?.updateDaemon).toBe(false);
+    expect(normalizePolicy({ version: 1, scopes: ["view"], updateDaemon: "yes" })?.updateDaemon).toBe(false);
+  });
+
   test("write/read round-trip is 0600 and preserves the allowlist", () => {
     const home = tempHome();
     const policy: AuthPolicy = { ...defaultPolicy(), scopes: ["view", "control"], allowedCwd: [home] };

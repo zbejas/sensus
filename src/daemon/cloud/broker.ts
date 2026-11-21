@@ -6,7 +6,9 @@
  * before a local daemon WS/REST call is made (the op → scope table lives in
  * `ops.ts`; that table is the allowlist). There is deliberately no generic
  * HTTP or WebSocket proxy, no config/secrets/audit/models surface, no sudo, no
- * trust mutation, no `terminal.kill`, and no update path.
+ * trust mutation, and no `terminal.kill`. The only update surface is the typed
+ * `daemon.update` op, gated by `control` plus the host-local `updateDaemon`
+ * flag; it runs the project's own installer and cannot choose a URL or command.
  *
  * Persisted transcripts and agent memory are exposed read-mostly and BOUNDED:
  * transcript reads never return the absolute file path, messages are clipped,
@@ -34,6 +36,7 @@ import { CLOUD_APPROVAL_HARD_CAP_MS, CLOUD_MAX_CHAT_RUN_STREAMS, CLOUD_MAX_STREA
 import type { RunRecord } from "./cleanup.ts"
 import type { ConnectorToCloud } from "./protocol.ts"
 import { tunnelOpSpec } from "./ops.ts"
+import type { DaemonUpdateOutcome } from "../../update.ts"
 import {
   exportSession,
   isSafeSessionSegment,
@@ -234,6 +237,8 @@ export interface BrokerOptions {
   forgetRun?: (streamId: string) => { ok: boolean; error?: string }
   /** Local-policy daemon start (`startDaemon: true`). */
   startDaemon?: () => Promise<boolean>
+  /** Host-local self-update runner (`daemon.update`); absent → `update_unavailable`. */
+  updateDaemon?: (input: { check: boolean; version: string | null }) => Promise<DaemonUpdateOutcome>
   /** Saved-session Context Inspector snapshot; absent → `unsupported`. */
   contextForSession?: (path: string) => { title: string; breakdown: unknown } | null
   /** True when a live chat is still appending to this transcript path. */
@@ -452,6 +457,14 @@ export class RelayBroker {
           "transcript deletion is disabled in the local cloud policy; it permanently deletes transcripts with no trash (sensus cloud scopes --delete-transcripts on)",
       }
     }
+    if (spec.policyFlag === "updateDaemon" && this.opts.policy.updateDaemon !== true) {
+      return {
+        ok: false,
+        code: "update_disabled",
+        message:
+          "host updates are disabled in the local cloud policy; enable them on the host with `sensus cloud scopes --update on`",
+      }
+    }
     const p = isRecord(params) ? params : {}
 
     switch (op) {
@@ -482,6 +495,32 @@ export class RelayBroker {
         if (!started) return { ok: false, code: "start_failed", message: "the daemon did not become healthy" }
         const facts = await this.daemonFacts()
         return { ok: true, result: { state: facts.state } }
+      }
+      case "daemon.update": {
+        const checkRaw = p["check"]
+        if (checkRaw !== undefined && typeof checkRaw !== "boolean") {
+          return invalidRequest("check must be a boolean")
+        }
+        const versionRaw = p["version"]
+        let version: string | null = null
+        if (versionRaw !== undefined) {
+          if (typeof versionRaw !== "string") return invalidRequest("version must be a string")
+          if (versionRaw.toLowerCase() === "latest") {
+            version = null
+          } else {
+            if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(versionRaw)) {
+              return invalidRequest("version must be a release tag (letters, digits, dot, underscore, dash)")
+            }
+            version = versionRaw
+          }
+        }
+        const update = this.opts.updateDaemon
+        if (update === undefined) {
+          return { ok: false, code: "update_unavailable", message: "this daemon cannot update itself" }
+        }
+        const outcome = await update({ check: checkRaw === true, version })
+        if (outcome.ok) return { ok: true, result: outcome.result }
+        return { ok: false, code: outcome.code, message: outcome.message }
       }
       case "terminal.list": {
         return await this.controlRequest("terminal.list", {})

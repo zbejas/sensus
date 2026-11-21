@@ -81,6 +81,8 @@ sensus cloud status
 sensus cloud doctor              # diagnose pairing, service, tunnel and proxy
 sensus cloud scopes              # show the host-granted scopes
 sensus cloud scopes --allow view,chat
+sensus cloud scopes --delete-transcripts on|off
+sensus cloud scopes --update on|off
 sensus cloud disable             # keep the pairing, stop the connection
 sensus cloud enable
 sensus cloud unpair
@@ -128,10 +130,26 @@ managed with `sudo systemctl status sensus`, `sudo systemctl restart sensus`, an
 `sudo systemctl disable --now sensus`. Its socket and config live under root, so run
 the CLI and TUI as root to use it.
 
-Without an explicit `--allow` list, pairing explains and lists the four scopes — `view`,
-`chat`, `control`, and `orchestrator` — and asks which to grant. Pressing Enter grants
-`view,chat,control`; type a narrower list such as `view,chat` if you do not want terminal
-control.
+Without an explicit `--allow` list, pairing shows a numbered menu:
+
+```
+1) Standard    view, chat, control
+2) Conductor   view, chat, control, orchestrator
+3) YOLO        every scope + daemon start, transcript deletion, host updates
+4) Custom      type a comma-separated scope list
+```
+
+Pressing Enter or choosing `1`/`standard` grants `view,chat,control`. `2`/`conductor`
+adds `orchestrator`. `3`/`yolo` grants every scope and also lets the cloud start the
+daemon, delete transcripts permanently (no trash), and replace/restart Sensus; it warns
+that live shells, chats, and turns can end. `4`/`custom` asks for a comma-separated list
+(default `view,chat,control`; `all` works) and changes no other flags. Unknown input
+asks again.
+
+Host updates are off by default. `sensus cloud scopes --update on` lets the panel ask this
+host to install a release; the binary is replaced and the service restarts, so live
+shells, chats, and running turns end. It needs the `control` scope. `--update off` turns it
+back off.
 
 The scopes are the host's own policy, but the cloud remembers the set approved when you
 paired. `sensus cloud scopes --allow` cannot add scopes beyond that set. To widen a view-only

@@ -17,7 +17,7 @@ export interface TunnelOpSpec {
   /** Host-local scope the policy must grant (`view`, `chat`, `control`, `orchestrator`). */
   scope: Scope
   /** Optional host-local policy boolean that must be `true` for this op. */
-  policyFlag?: "deleteTranscripts"
+  policyFlag?: "deleteTranscripts" | "updateDaemon"
 }
 
 /**
@@ -30,6 +30,8 @@ export const TUNNEL_OPS: Readonly<Record<string, TunnelOpSpec>> = Object.freeze(
   "daemon.health": { scope: "view" },
   // Starting the daemon is gated by `policy.startDaemon`, not by `control`.
   "daemon.start": { scope: "view" },
+  // Replaces the binary and restarts the daemon: `control` plus the host-local opt-in.
+  "daemon.update": { scope: "control", policyFlag: "updateDaemon" },
   "terminal.list": { scope: "view" },
   "terminal.open": { scope: "control" },
   "chat.list": { scope: "view" },

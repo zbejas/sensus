@@ -112,7 +112,9 @@ The daemon does not only log lifecycle — it records what the agent actually di
   `tool executed` (never also from `emitRan`). Denied/blocked/interaction calls emit none.
 - **Abort reasons** are threaded from every caller: `user` (Esc / `chat.abort`),
   `rewind` (a rewind), `plan-cancel` (the plan card's cancel), `shell-exit` (the bound
-  pane died), `approval-timeout` (the D10 no-client hold), `prompt-orphaned` (the last
+  pane died), `approval-timeout` (the one-hour no-client tool-approval hold), `ask-timeout`
+  (the one-hour no-client `ask_user` hold), `plan-timeout` (the one-hour no-client plan
+  hold), `sudo-timeout` (the one-hour no-client sudo hold), `prompt-orphaned` (the last
   watcher left while others remain), `shutdown` (`daemon stop`). The reason rides the
   `turn-complete` seam event too; the frozen v1 schema still drops it (docs/events.md).
 - **Restart/stop reasons.** The foreground CLI classifies the pidfile/socket/health it

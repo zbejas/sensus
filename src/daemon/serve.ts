@@ -29,6 +29,7 @@ import {
   type TriggerConfig,
 } from "../engine/index.ts"
 import { SENSUS_VERSION } from "../version.ts"
+import { runDaemonUpdate } from "../update.ts"
 import { errorMessage } from "../core/util.ts"
 import { configureLogger, flushLoggerSync, getLogger, withCorrelation, type Logger } from "../core/log.ts"
 import { createDaemonApp, type DaemonInfo } from "./app.ts"
@@ -41,7 +42,15 @@ import { ShellRegistry } from "./shells.ts"
 import { buildUsageReport } from "./usage.ts"
 import { createWsEndpoint, resolveGraceMs, type WsSocketData } from "./ws.ts"
 import { createTriggerSink, TriggerEngine, type TriggerRecord } from "./triggers.ts"
-import { DaemonLifecycle, resolveApprovalTimeoutMs, resolvePersistent, resolveReattachMaxAgeMs } from "./lifecycle.ts"
+import {
+  DaemonLifecycle,
+  resolveApprovalTimeoutMs,
+  resolveAskTimeoutMs,
+  resolvePersistent,
+  resolvePlanTimeoutMs,
+  resolveReattachMaxAgeMs,
+  resolveSudoTimeoutMs,
+} from "./lifecycle.ts"
 import { ensureRuntimeDir, generateToken, writeToken } from "./token.ts"
 import { createCloudClient, type CloudClient } from "./cloud/client.ts"
 import { unixUserLabel } from "./cloud/state.ts"
@@ -108,6 +117,12 @@ export interface StartDaemonOptions {
   graceMs?: number
   /** Test seam: overrides the `SENSUS_DAEMON_APPROVAL_TIMEOUT_MS` hold. */
   approvalTimeoutMs?: number
+  /** Test seam: overrides the `SENSUS_DAEMON_ASK_TIMEOUT_MS` hold. */
+  askTimeoutMs?: number
+  /** Test seam: overrides the `SENSUS_DAEMON_PLAN_TIMEOUT_MS` hold. */
+  planTimeoutMs?: number
+  /** Test seam: overrides the `SENSUS_DAEMON_SUDO_TIMEOUT_MS` hold. */
+  sudoTimeoutMs?: number
   /** Test seam: overrides `SENSUS_DAEMON_PERSISTENT` / the config flag. */
   persistent?: boolean
   /** Test seam: overrides `SENSUS_DAEMON_REATTACH_MAX_AGE_MS` (the idle reaper
@@ -400,18 +415,28 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
   // every engine event; `stopRef` lets the policy shut the daemon down cleanly
   // (it is assigned once `stop` exists, below).
   const graceMs = opts.graceMs ?? resolveGraceMs(process.env)
-  const approvalTimeoutMs = opts.approvalTimeoutMs ?? resolveApprovalTimeoutMs(process.env)
-  const persistent = opts.persistent ?? resolvePersistent(process.env, config().daemonPersistent)
+  const cfg = config()
+  const approvalTimeoutMs = opts.approvalTimeoutMs ?? resolveApprovalTimeoutMs(process.env, cfg.approvalTimeoutMs)
+  const askTimeoutMs = opts.askTimeoutMs ?? resolveAskTimeoutMs(process.env, cfg.askTimeoutMs)
+  const planTimeoutMs = opts.planTimeoutMs ?? resolvePlanTimeoutMs(process.env, cfg.planTimeoutMs)
+  const sudoTimeoutMs = opts.sudoTimeoutMs ?? resolveSudoTimeoutMs(process.env, cfg.sudoTimeoutMs)
+  const persistent = opts.persistent ?? resolvePersistent(process.env, cfg.daemonPersistent)
   const reattachMaxAgeMs = opts.reattachMaxAgeMs ?? resolveReattachMaxAgeMs(process.env)
   let stopRef: (reason?: string) => void = () => {}
   const lifecycle = new DaemonLifecycle({
     graceMs,
     approvalTimeoutMs,
+    askTimeoutMs,
+    planTimeoutMs,
+    sudoTimeoutMs,
     persistent,
     reattachMaxAgeMs,
     ...(opts.reapIntervalMs !== undefined ? { reapIntervalMs: opts.reapIntervalMs } : {}),
     anyTurnRunning: () => chats.anyTurnRunning(),
     pendingPromptChats: () => chats.pendingPromptChats(),
+    pendingAskChats: () => chats.pendingAskChats(),
+    pendingPlanChats: () => chats.pendingPlanChats(),
+    pendingSudoChats: () => chats.pendingSudoChats(),
     denyPending: (chatId) => chats.denyPending(chatId),
     abortTurn: (chatId, reason) => chats.abortTurn(chatId, reason),
     // The daemon owns the visible panes (D1, locked #6): while a live shell
@@ -477,6 +502,7 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<StartD
           contextForSession: (path) => chats.sessionContextBreakdown(path),
           isSessionOpen: (path) => chats.isSessionOpen(path),
           deleteSession: (path) => chats.deleteSession(path),
+          updateDaemon: (input) => runDaemonUpdate(input, { env: process.env }),
         })
       : createCloudClient({ startTunnel: false, version: SENSUS_VERSION }))
 

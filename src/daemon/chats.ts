@@ -807,6 +807,45 @@ export class ChatRegistry {
     return ids
   }
 
+  /** Chat ids blocked on an `ask_user` prompt (the longer D10 ask hold).
+   * Separate from `pendingPromptChats` so a question can wait far longer than a
+   * gated tool call. */
+  pendingAskChats(): string[] {
+    const ids: string[] = []
+    for (const record of this.records.values()) {
+      try {
+        if (record.chat.pendingAsk() !== null) ids.push(record.id)
+      } catch (err) {
+        // A signal read must never escape the lifetime policy.
+        log.warn("pending-ask read failed", { err, chatId: record.id })
+      }
+    }
+    return ids
+  }
+
+  /** Chat ids blocked on an approval-batch plan (the longer D10 plan hold). */
+  pendingPlanChats(): string[] {
+    const ids: string[] = []
+    for (const record of this.records.values()) {
+      try {
+        if (record.chat.pendingPlan() !== null) ids.push(record.id)
+      } catch (err) {
+        // A signal read must never escape the lifetime policy.
+        log.warn("pending-plan read failed", { err, chatId: record.id })
+      }
+    }
+    return ids
+  }
+
+  /** Chat ids blocked on a sudo prompt (the longer D10 sudo hold). */
+  pendingSudoChats(): string[] {
+    const ids: string[] = []
+    for (const record of this.records.values()) {
+      if (record.pendingSudo !== null) ids.push(record.id)
+    }
+    return ids
+  }
+
   /**
    * Deny a chat's pending approval / plan / sudo prompt WITHOUT aborting (D10).
    * Returns true when a prompt was actually resolved. An `ask_user` prompt has

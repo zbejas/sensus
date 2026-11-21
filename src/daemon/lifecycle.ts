@@ -9,11 +9,12 @@
  * grace clock.
  *
  * With no client attached, a pending approval / sudo / plan prompt holds (it is
- * never declined immediately) and, after the approval timeout, the call is
- * recorded as denied and the turn is aborted — nothing executes unapproved
- * (D10). `chat.abort` still declines immediately; a *resolving* client that
- * leaves while other clients remain leaves a prompt nobody is watching, so
- * that prompt is denied at once (never dangling).
+ * never declined immediately). Every prompt kind defaults to a one-hour hold;
+ * a client that is present resolves it normally. On expiry the call is recorded
+ * as denied and the turn is aborted — nothing executes unapproved (D10).
+ * `chat.abort` still declines immediately; a *resolving* client that leaves
+ * while other clients remain leaves a prompt nobody is watching, so that prompt
+ * is denied at once (never dangling).
  *
  * `versionMismatchAction` is the pure handshake helper the client uses on
  * connect (D21): equal versions are fine; a mismatch restarts a worker that
@@ -34,8 +35,19 @@ const log: Logger = componentLogger("daemon.lifecycle")
 /** Re-exported for compatibility; the implementation is Elysia-free (version.ts). */
 export { versionMismatchAction } from "./version.ts"
 
-/** Default no-client approval/sudo hold before the turn is aborted (D10). */
-export const DEFAULT_APPROVAL_TIMEOUT_MS = 60_000
+/** Default no-client prompt hold before the turn is aborted (D10). Every
+ * prompt kind defaults to one hour; the per-kind config keys let an owner
+ * shorten an individual kind. */
+export const DEFAULT_APPROVAL_TIMEOUT_MS = 60 * 60 * 1000
+
+/**
+ * Default no-client hold for the human-decision prompts. An `ask_user`
+ * question, an approval-batch plan, and a sudo password prompt can all wait for
+ * a human to return, so they default to one hour.
+ */
+export const DEFAULT_ASK_TIMEOUT_MS = 60 * 60 * 1000
+export const DEFAULT_PLAN_TIMEOUT_MS = 60 * 60 * 1000
+export const DEFAULT_SUDO_TIMEOUT_MS = 60 * 60 * 1000
 
 /**
  * Default re-attach window (8h): a shell left **inactive** (no attached client)
@@ -59,12 +71,44 @@ export function resolveReattachMaxAgeMs(env: Record<string, string | undefined> 
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_REATTACH_MAX_AGE_MS
 }
 
-/** `SENSUS_DAEMON_APPROVAL_TIMEOUT_MS` (ms, ≥ 0) or the 60s default. */
-export function resolveApprovalTimeoutMs(env: Record<string, string | undefined> = process.env): number {
-  const raw = env["SENSUS_DAEMON_APPROVAL_TIMEOUT_MS"]
-  if (raw === undefined || raw.trim() === "") return DEFAULT_APPROVAL_TIMEOUT_MS
+/** Resolve one prompt timeout: `SENSUS_DAEMON_*` (ms, ≥ 0) or `fallback`.
+ * `0` means "hold forever" (the caller skips arming the timer). */
+function resolvePromptTimeoutMs(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === "") return fallback
   const n = Number(raw)
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : DEFAULT_APPROVAL_TIMEOUT_MS
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback
+}
+
+/** `SENSUS_DAEMON_APPROVAL_TIMEOUT_MS` (ms, ≥ 0) or `fallback` (60s default). */
+export function resolveApprovalTimeoutMs(
+  env: Record<string, string | undefined> = process.env,
+  fallback = DEFAULT_APPROVAL_TIMEOUT_MS,
+): number {
+  return resolvePromptTimeoutMs(env["SENSUS_DAEMON_APPROVAL_TIMEOUT_MS"], fallback)
+}
+
+/** `SENSUS_DAEMON_ASK_TIMEOUT_MS` (ms, ≥ 0) or `fallback` (1h default). */
+export function resolveAskTimeoutMs(
+  env: Record<string, string | undefined> = process.env,
+  fallback = DEFAULT_ASK_TIMEOUT_MS,
+): number {
+  return resolvePromptTimeoutMs(env["SENSUS_DAEMON_ASK_TIMEOUT_MS"], fallback)
+}
+
+/** `SENSUS_DAEMON_PLAN_TIMEOUT_MS` (ms, ≥ 0) or `fallback` (1h default). */
+export function resolvePlanTimeoutMs(
+  env: Record<string, string | undefined> = process.env,
+  fallback = DEFAULT_PLAN_TIMEOUT_MS,
+): number {
+  return resolvePromptTimeoutMs(env["SENSUS_DAEMON_PLAN_TIMEOUT_MS"], fallback)
+}
+
+/** `SENSUS_DAEMON_SUDO_TIMEOUT_MS` (ms, ≥ 0) or `fallback` (1h default). */
+export function resolveSudoTimeoutMs(
+  env: Record<string, string | undefined> = process.env,
+  fallback = DEFAULT_SUDO_TIMEOUT_MS,
+): number {
+  return resolvePromptTimeoutMs(env["SENSUS_DAEMON_SUDO_TIMEOUT_MS"], fallback)
 }
 
 /** Truthy spellings accepted for `SENSUS_DAEMON_PERSISTENT`. */
@@ -101,14 +145,26 @@ export interface ClientGoneInfo {
 export interface DaemonLifecycleDeps {
   /** Non-persistent idle grace in ms (`SENSUS_DAEMON_GRACE_MS`). */
   graceMs: number
-  /** No-client approval/sudo hold in ms (`SENSUS_DAEMON_APPROVAL_TIMEOUT_MS`). */
+  /** No-client approval hold in ms (`SENSUS_DAEMON_APPROVAL_TIMEOUT_MS`). */
   approvalTimeoutMs: number
+  /** No-client `ask_user` hold in ms (`SENSUS_DAEMON_ASK_TIMEOUT_MS`). */
+  askTimeoutMs: number
+  /** No-client approval-batch plan hold in ms (`SENSUS_DAEMON_PLAN_TIMEOUT_MS`). */
+  planTimeoutMs: number
+  /** No-client sudo hold in ms (`SENSUS_DAEMON_SUDO_TIMEOUT_MS`). */
+  sudoTimeoutMs: number
   /** Never grace-exit (`SENSUS_DAEMON_PERSISTENT` / config). */
   persistent: boolean
   /** True while any chat turn runs (streaming) or blocks on a prompt. */
   anyTurnRunning: () => boolean
   /** Chat ids blocked on an approval / plan / sudo / ask prompt. */
   pendingPromptChats: () => string[]
+  /** Chat ids blocked on an `ask_user` prompt (the longer hold set). */
+  pendingAskChats: () => string[]
+  /** Chat ids blocked on an approval-batch plan (the longer hold set). */
+  pendingPlanChats: () => string[]
+  /** Chat ids blocked on a sudo prompt (the longer hold set). */
+  pendingSudoChats: () => string[]
   /**
    * True while the daemon owns at least one live pane shell. The daemon holds
    * (does not idle-exit) while this is true, so a client kill/restart cannot
@@ -147,6 +203,15 @@ export interface DaemonLifecycleDeps {
   shutdown: () => void
 }
 
+/** The prompt kinds the no-client hold tracks independently. */
+type PromptHoldKind = "approval" | "plan" | "sudo" | "ask"
+
+interface PromptHold {
+  timeoutMs: number
+  window: GraceWindow
+  held: boolean
+}
+
 /**
  * The lifetime state machine. `clients` is tracked here; `serve.ts` feeds it
  * client connect/disconnect plus every engine `ChatEvent`.
@@ -155,17 +220,36 @@ export class DaemonLifecycle {
   private clients = 0
   private started = false
   private stopped = false
-  /** Whether the no-client approval hold is currently armed (so unrelated chat
-   * events never reset the timeout). */
-  private approvalHeld = false
   private readonly grace: GraceWindow
-  private readonly approval: GraceWindow
+  /** Independent no-client holds, one per prompt kind. */
+  private readonly holds: Record<PromptHoldKind, PromptHold>
   /** Periodic reaper for shells left inactive past the re-attach window. */
   private reapTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(private readonly deps: DaemonLifecycleDeps) {
     this.grace = new GraceWindow(deps.graceMs, () => this.onGraceExpired())
-    this.approval = new GraceWindow(deps.approvalTimeoutMs, () => this.onApprovalExpired())
+    this.holds = {
+      approval: {
+        timeoutMs: deps.approvalTimeoutMs,
+        window: new GraceWindow(deps.approvalTimeoutMs, () => this.onPromptExpired("approval")),
+        held: false,
+      },
+      plan: {
+        timeoutMs: deps.planTimeoutMs,
+        window: new GraceWindow(deps.planTimeoutMs, () => this.onPromptExpired("plan")),
+        held: false,
+      },
+      sudo: {
+        timeoutMs: deps.sudoTimeoutMs,
+        window: new GraceWindow(deps.sudoTimeoutMs, () => this.onPromptExpired("sudo")),
+        held: false,
+      },
+      ask: {
+        timeoutMs: deps.askTimeoutMs,
+        window: new GraceWindow(deps.askTimeoutMs, () => this.onPromptExpired("ask")),
+        held: false,
+      },
+    }
   }
 
   /** Arm the startup grace: a daemon that never gets a client still exits. Also
@@ -173,16 +257,16 @@ export class DaemonLifecycle {
   start(): void {
     this.started = true
     this.armGraceIfIdle()
-    this.armApprovalIfNeeded()
+    this.armPromptHolds()
     this.startReaper()
   }
 
-  /** A client upgraded and handshook: cancel both timers (a present client can
+  /** A client upgraded and handshook: cancel every timer (a present client can
    * resolve prompts, and the idle clock stops). */
   clientConnected(): void {
     this.clients += 1
     this.grace.cancel()
-    this.cancelApproval()
+    this.cancelPromptHolds()
   }
 
   /** A client's socket closed. */
@@ -196,27 +280,21 @@ export class DaemonLifecycle {
       for (const chatId of info.orphanedChats) {
         if (pending.has(chatId)) this.resolveOrphan(chatId)
       }
-      this.cancelApproval()
+      this.cancelPromptHolds()
       return
     }
     this.armGraceIfIdle()
-    this.armApprovalIfNeeded()
+    this.armPromptHolds()
   }
 
   /**
    * React to an engine chat event: a raised prompt with no client arms the
-   * approval hold, a settled turn re-arms the idle grace, and a running turn
+   * matching hold, a settled turn re-arms the idle grace, and a running turn
    * keeps the daemon alive.
    */
   onChatEvent(_chatId: string, event: ChatEvent): void {
     if (this.stopped) return
     switch (event.kind) {
-      case "approval-request":
-      case "sudo-request":
-      case "approval-resolved":
-      case "sudo-resolved":
-        this.armApprovalIfNeeded()
-        break
       case "status":
         if (event.status === "streaming") this.grace.cancel()
         else this.armGraceIfIdle()
@@ -224,15 +302,15 @@ export class DaemonLifecycle {
       default:
         break
     }
-    // A prompt may have appeared via a plain message/card update.
-    if (this.clients === 0) this.armApprovalIfNeeded()
+    // A prompt may have appeared or resolved via a plain message/card update.
+    if (this.clients === 0) this.armPromptHolds()
   }
 
-  /** Cancel both timers (daemon shutdown). */
+  /** Cancel every timer (daemon shutdown). */
   stop(): void {
     this.stopped = true
     this.grace.cancel()
-    this.cancelApproval()
+    this.cancelPromptHolds()
     if (this.reapTimer !== null) {
       clearInterval(this.reapTimer)
       this.reapTimer = null
@@ -304,44 +382,89 @@ export class DaemonLifecycle {
     this.shutdown()
   }
 
-  private armApprovalIfNeeded(): void {
+  /**
+   * Arm the holds that match the pending prompt kinds. Every kind gets an
+   * independent window and config key, but all default to one hour. A timeout
+   * of `0` means "hold forever": no timer.
+   */
+  private armPromptHolds(): void {
     if (!this.started || this.stopped) return
-    if (this.clients > 0 || this.deps.pendingPromptChats().length === 0) {
-      this.cancelApproval()
+    if (this.clients > 0) {
+      this.cancelPromptHolds()
+      return
+    }
+    const asks = new Set(this.deps.pendingAskChats())
+    const plans = new Set(this.deps.pendingPlanChats())
+    const sudos = new Set(this.deps.pendingSudoChats())
+    const hasApproval = this.deps
+      .pendingPromptChats()
+      .some((chatId) => !asks.has(chatId) && !plans.has(chatId) && !sudos.has(chatId))
+    this.syncHold("approval", hasApproval)
+    this.syncHold("plan", plans.size > 0)
+    this.syncHold("sudo", sudos.size > 0)
+    this.syncHold("ask", asks.size > 0)
+  }
+
+  private syncHold(kind: PromptHoldKind, active: boolean): void {
+    const hold = this.holds[kind]
+    if (!active) {
+      this.cancelHold(kind)
       return
     }
     // Already holding: never reset the window on an unrelated chat event.
-    if (this.approvalHeld) return
-    this.approvalHeld = true
-    this.approval.arm()
+    if (hold.held) return
+    if (hold.timeoutMs <= 0) return
+    hold.held = true
+    hold.window.arm()
   }
 
-  private cancelApproval(): void {
-    this.approval.cancel()
-    this.approvalHeld = false
+  private cancelHold(kind: PromptHoldKind): void {
+    this.holds[kind].window.cancel()
+    this.holds[kind].held = false
   }
 
-  private onApprovalExpired(): void {
+  private cancelPromptHolds(): void {
+    this.cancelHold("approval")
+    this.cancelHold("plan")
+    this.cancelHold("sudo")
+    this.cancelHold("ask")
+  }
+
+  /** The chats whose only reason for the hold is `kind`. */
+  private chatsForHold(kind: PromptHoldKind): string[] {
+    if (kind === "ask") return this.deps.pendingAskChats()
+    if (kind === "plan") return this.deps.pendingPlanChats()
+    if (kind === "sudo") return this.deps.pendingSudoChats()
+    const asks = new Set(this.deps.pendingAskChats())
+    const plans = new Set(this.deps.pendingPlanChats())
+    const sudos = new Set(this.deps.pendingSudoChats())
+    return this.deps.pendingPromptChats().filter((chatId) => !asks.has(chatId) && !plans.has(chatId) && !sudos.has(chatId))
+  }
+
+  private onPromptExpired(kind: PromptHoldKind): void {
     if (this.stopped) return
-    this.approvalHeld = false
-    for (const chatId of [...this.deps.pendingPromptChats()]) {
+    this.holds[kind].held = false
+    for (const chatId of [...this.chatsForHold(kind)]) {
       // Record the call as denied (approval/plan/sudo), then end the turn so a
-      // blocked no-client turn can never sit forever (D10).
-      try {
-        this.deps.denyPending(chatId)
-      } catch (err) {
-        // contained
-        log.error("denyPending failed on approval timeout", { err, chatId })
+      // blocked no-client turn can never sit forever (D10). An `ask_user`
+      // prompt has no daemon answer op, so aborting the turn resolves it.
+      if (kind !== "ask") {
+        try {
+          this.deps.denyPending(chatId)
+        } catch (err) {
+          // contained
+          log.error(`denyPending failed on ${kind} timeout`, { err, chatId })
+        }
       }
       try {
-        this.deps.abortTurn(chatId, "approval-timeout")
+        this.deps.abortTurn(chatId, `${kind}-timeout`)
       } catch (err) {
         // contained
-        log.error("abortTurn failed on approval timeout", { err, chatId })
+        log.error(`abortTurn failed on ${kind} timeout`, { err, chatId })
       }
     }
     // Retry if a prompt somehow survived, then let the idle clock run.
-    this.armApprovalIfNeeded()
+    this.armPromptHolds()
     this.armGraceIfIdle()
   }
 
@@ -367,7 +490,7 @@ export class DaemonLifecycle {
     if (this.stopped) return
     this.stopped = true
     this.grace.cancel()
-    this.cancelApproval()
+    this.cancelPromptHolds()
     try {
       this.deps.shutdown()
     } catch (err) {

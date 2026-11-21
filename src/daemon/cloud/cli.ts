@@ -14,7 +14,7 @@ import { join, resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
 import { errorMessage, isRecord } from "../../core/util.ts"
 import { loadOrCreateIdentity, readIdentity } from "../../auth/identity.ts"
-import { defaultPolicy, readPolicy, writePolicy } from "../../auth/policy.ts"
+import { defaultPolicy, readPolicy, writePolicy, type AuthPolicy } from "../../auth/policy.ts"
 import { parseScopeList, hasScope, SCOPES, type Scope } from "../../auth/scopes.ts"
 import { safeUid } from "../../auth/paths.ts"
 import { sensusHomeFrom, sensusRuntimeDirFrom } from "../../config/config/paths.ts"
@@ -142,7 +142,7 @@ const USAGE = `sensus cloud — pair this host with a Sensus Cloud panel
 
 Usage:
   sensus cloud pair --cloud <url> [--code <CODE>] [--allow <scopes>] [--allow-root] [--no-wait] [--no-service] [--no-linger] [--root|--user]
-  sensus cloud scopes [--allow <scopes>] [--delete-transcripts on|off] [--allow-root] [--json]
+  sensus cloud scopes [--allow <scopes>] [--delete-transcripts on|off] [--update on|off] [--allow-root] [--json]
   sensus cloud status [--json]
   sensus cloud doctor [--json]
   sensus cloud disable | enable
@@ -171,6 +171,9 @@ Interactive pairing lists them and asks which to grant; the default is view,chat
 Deletion: --delete-transcripts on allows the cloud to delete transcripts (needs
 the control scope too). Deleted transcripts are removed permanently with no
 trash and disappear from search; off by default.
+Updates: --update on allows the cloud to replace the Sensus binary and restart
+the daemon (needs the control scope too). Live shells, chats, and running turns
+end when it restarts; off by default.
 Root: pairing as root is refused unless --allow-root (or an interactive yes).
 Run as the Unix user whose daemon should be controlled.
 `
@@ -235,20 +238,55 @@ async function askText(question: string): Promise<string> {
 /** Scopes an interactive pairing offers unless the user narrows them. */
 const PAIRING_DEFAULT_SCOPES: Scope[] = ["view", "chat", "control"]
 
-async function promptScopes(io: CloudIo, opts: CloudCliOptions): Promise<Scope[]> {
+/** The opt-in flags a pairing preset may set; absent means "preserve". */
+type PairingFlagPatch = Partial<Pick<AuthPolicy, "startDaemon" | "deleteTranscripts" | "updateDaemon">>
+
+interface ScopeChoice {
+  scopes: Scope[]
+  flags?: PairingFlagPatch
+}
+
+/** Parse a scope list, keeping the `all` alias used by the interactive menu. */
+function parseScopeInput(raw: string) {
+  return raw.trim().toLowerCase() === "all"
+    ? { ok: true as const, scopes: [...SCOPES] }
+    : parseScopeList(raw)
+}
+
+async function promptScopes(io: CloudIo, opts: CloudCliOptions): Promise<ScopeChoice> {
   io.err("sensus cloud: choose what this cloud may do on this host:")
-  io.err("  view          watch terminals and chats, list shells and chats")
-  io.err("  chat          send prompts, approve tool calls, answer questions")
-  io.err("  control       open shells, type into terminals, resize, take control")
-  io.err("  orchestrator  run Conductor/headless agent jobs")
-  const fallback = PAIRING_DEFAULT_SCOPES.join(",")
+  io.err("  1) Standard    view, chat, control")
+  io.err("  2) Conductor   view, chat, control, orchestrator")
+  io.err("  3) YOLO        every scope + daemon start, transcript deletion, host updates")
+  io.err("  4) Custom      type a comma-separated scope list")
   const askFn = opts.promptText ?? askText
   for (;;) {
-    const answer = await askFn(`Scopes (comma-separated) [${fallback}]: `)
-    const raw = answer.trim() === "" ? fallback : answer
-    const parsed = raw.trim().toLowerCase() === "all" ? { ok: true as const, scopes: [...SCOPES] } : parseScopeList(raw)
-    if (parsed.ok) return parsed.scopes
-    io.err(`sensus cloud pair: ${parsed.error}`)
+    const answer = (await askFn("Choice [1]: ")).trim().toLowerCase()
+    if (answer === "" || answer === "1" || answer === "standard") {
+      return { scopes: [...PAIRING_DEFAULT_SCOPES] }
+    }
+    if (answer === "2" || answer === "conductor") {
+      return { scopes: ["view", "chat", "control", "orchestrator"] }
+    }
+    if (answer === "3" || answer === "yolo") {
+      io.err(
+        "sensus cloud: warning: YOLO lets the cloud start the daemon, delete transcripts permanently (no trash), and replace/restart Sensus; live shells, chats, and turns can end.",
+      )
+      return {
+        scopes: [...SCOPES],
+        flags: { startDaemon: true, deleteTranscripts: true, updateDaemon: true },
+      }
+    }
+    if (answer === "4" || answer === "custom") {
+      for (;;) {
+        const custom = await askFn(`Scopes (comma-separated) [${PAIRING_DEFAULT_SCOPES.join(",")}]: `)
+        const raw = custom.trim() === "" ? PAIRING_DEFAULT_SCOPES.join(",") : custom
+        const parsed = parseScopeInput(raw)
+        if (parsed.ok) return { scopes: parsed.scopes }
+        io.err(`sensus cloud pair: ${parsed.error}`)
+      }
+    }
+    io.err("sensus cloud pair: choose 1-4, or standard/conductor/yolo/custom")
   }
 }
 
@@ -794,7 +832,8 @@ async function scopesCommand(
   }
   const allowRaw = stringFlag(flags.values, "allow")
   const deleteRaw = stringFlag(flags.values, "delete-transcripts")
-  if (allowRaw === undefined && deleteRaw === undefined) {
+  const updateRaw = stringFlag(flags.values, "update")
+  if (allowRaw === undefined && deleteRaw === undefined && updateRaw === undefined) {
     if (flags.values.get("json") === true) {
       io.out(JSON.stringify(read.policy, null, 2))
     } else {
@@ -804,6 +843,9 @@ async function scopesCommand(
       io.out(
         `sensus cloud: delete transcripts ${read.policy.deleteTranscripts ? "on (permanent, no trash)" : "off"}`,
       )
+      io.out(
+        `sensus cloud: host updates  ${read.policy.updateDaemon ? "on (cloud may replace the binary and restart the daemon)" : "off"}`,
+      )
       if (!read.existed) io.out("sensus cloud: policy is the default (view only)")
     }
     return 0
@@ -811,7 +853,7 @@ async function scopesCommand(
 
   let next = read.policy
   if (allowRaw !== undefined) {
-    const parsed = parseScopeList(allowRaw)
+    const parsed = parseScopeInput(allowRaw)
     if (!parsed.ok) {
       io.err(`sensus cloud scopes: ${parsed.error}`)
       return 1
@@ -827,6 +869,16 @@ async function scopesCommand(
     }
     deleteEnabled = value === "on"
     next = { ...next, deleteTranscripts: deleteEnabled }
+  }
+  let updateEnabled: boolean | null = null
+  if (updateRaw !== undefined) {
+    const value = updateRaw.trim().toLowerCase()
+    if (value !== "on" && value !== "off") {
+      io.err("sensus cloud scopes: --update wants `on` or `off`")
+      return 1
+    }
+    updateEnabled = value === "on"
+    next = { ...next, updateDaemon: updateEnabled }
   }
 
   const uid = opts.uid ?? safeUid() ?? -1
@@ -844,6 +896,15 @@ async function scopesCommand(
   if (deleteEnabled === true) {
     io.err("sensus cloud: warning: transcript deletion is permanent — deleted transcripts are removed with no trash")
     io.err("sensus cloud:          and cannot be recovered; they also disappear from session search.")
+  }
+  if (updateEnabled !== null) {
+    io.out(
+      `sensus cloud: host updates  ${updateEnabled ? "on (cloud may replace the binary and restart the daemon)" : "off"}`,
+    )
+  }
+  if (updateEnabled === true) {
+    io.err("sensus cloud: warning: host updates let the cloud replace the Sensus binary and restart the daemon;")
+    io.err("sensus cloud:          live shells, chats, and running turns end when it restarts.")
   }
   if (await reloadDaemon(io, opts, home, runtimeDir)) io.out("sensus cloud: daemon reloaded")
   else io.out("sensus cloud: the daemon will load the new policy on its next start")
@@ -1071,15 +1132,18 @@ async function pairCommand(io: CloudIo, opts: CloudCliOptions, argv: readonly st
   }
 
   const allowRaw = stringFlag(flags.values, "allow")
-  const parsedScopes = allowRaw === undefined ? null : parseScopeList(allowRaw)
+  const parsedScopes = allowRaw === undefined ? null : parseScopeInput(allowRaw)
   if (parsedScopes !== null && !parsedScopes.ok) {
     io.err(`sensus cloud pair: ${parsedScopes.error}`)
     return 1
   }
   let chosenScopes: Scope[] | null = parsedScopes?.ok ? parsedScopes.scopes : null
+  let flagPatch: PairingFlagPatch | undefined
   if (allowRaw === undefined && interactive) {
     try {
-      chosenScopes = await promptScopes(io, opts)
+      const choice = await promptScopes(io, opts)
+      chosenScopes = choice.scopes
+      flagPatch = choice.flags
     } catch (e) {
       io.err(`sensus cloud pair: ${errorMessage(e)}`)
       return 1
@@ -1100,8 +1164,8 @@ async function pairCommand(io: CloudIo, opts: CloudCliOptions, argv: readonly st
   const policy = existingPolicy.existed
     ? chosenScopes === null
       ? existingPolicy.policy
-      : { ...existingPolicy.policy, scopes: chosenScopes }
-    : { ...defaultPolicy(), scopes: chosenScopes ?? defaultPolicy().scopes }
+      : { ...existingPolicy.policy, scopes: chosenScopes, ...(flagPatch ?? {}) }
+    : { ...defaultPolicy(), scopes: chosenScopes ?? defaultPolicy().scopes, ...(flagPatch ?? {}) }
   if (!existingPolicy.existed || chosenScopes !== null) {
     const written = writePolicy(home, policy, { uid, allowRoot: approvedRoot })
     if (!written.ok) {

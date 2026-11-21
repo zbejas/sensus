@@ -6,7 +6,9 @@
  * shared pure helpers, so the broker/tunnel/tests can all agree on one shape.
  *
  * The connector is a typed broker, never a generic proxy: the frame unions
- * below deliberately contain no HTTP request/response frame and no update op.
+ * below contain no HTTP request/response frame and no generic update op.
+ * `daemon.update` is the one typed, host-policy-gated update RPC; the host runs
+ * its own release installer and never accepts a URL, path, or command.
  */
 
 import { isRecord } from "../../core/util.ts"
@@ -39,10 +41,10 @@ export const RUN_DEFAULT_TIMEOUT_SEC = 600
 export const RUN_MAX_TIMEOUT_SEC = 24 * 60 * 60
 /**
  * Connector-side safety net for a pending prompt. The cloud owns the real
- * approval deadline (60 s, extendable while a viewer is active); this cap only
- * guarantees a wedged cloud can never park a run forever.
+ * approval deadline (one hour by default, extendable while a viewer is active);
+ * this cap only guarantees a wedged cloud can never park a run forever.
  */
-export const CLOUD_APPROVAL_HARD_CAP_MS = 10 * 60 * 1000
+export const CLOUD_APPROVAL_HARD_CAP_MS = 2 * 60 * 60 * 1000
 
 /** Which host client is connected (legacy connector or the embedded daemon). */
 export interface ClientFacts {

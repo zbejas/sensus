@@ -284,6 +284,40 @@ describe("config resolution", () => {
     })
   })
 
+  test("prompt timeouts: defaults, file values, invalid warns", () => {
+    const d = defaultConfig()
+    expect(d.approvalTimeoutMs).toBe(60 * 60_000)
+    expect(d.askTimeoutMs).toBe(60 * 60_000)
+    expect(d.planTimeoutMs).toBe(60 * 60_000)
+    expect(d.sudoTimeoutMs).toBe(60 * 60_000)
+    withConfigFile({ approvalTimeoutMs: 1_500, askTimeoutMs: 7_200_000, planTimeoutMs: 7_300_000, sudoTimeoutMs: 7_400_000 }, (resolve) => {
+      const c = resolve()
+      expect(c.approvalTimeoutMs).toBe(1_500)
+      expect(c.askTimeoutMs).toBe(7_200_000)
+      expect(c.planTimeoutMs).toBe(7_300_000)
+      expect(c.sudoTimeoutMs).toBe(7_400_000)
+      expect(c.warnings.filter((w) => w.includes("TimeoutMs"))).toEqual([])
+    })
+    // 0 is valid and means "hold forever".
+    withConfigFile({ approvalTimeoutMs: 0, askTimeoutMs: 0, planTimeoutMs: 0, sudoTimeoutMs: 0 }, (resolve) => {
+      expect(resolve().approvalTimeoutMs).toBe(0)
+      expect(resolve().askTimeoutMs).toBe(0)
+      expect(resolve().planTimeoutMs).toBe(0)
+      expect(resolve().sudoTimeoutMs).toBe(0)
+    })
+    withConfigFile({ approvalTimeoutMs: "soon", askTimeoutMs: -1, planTimeoutMs: "later", sudoTimeoutMs: -1 }, (resolve) => {
+      const c = resolve()
+      expect(c.approvalTimeoutMs).toBe(60 * 60_000)
+      expect(c.askTimeoutMs).toBe(60 * 60_000)
+      expect(c.planTimeoutMs).toBe(60 * 60_000)
+      expect(c.sudoTimeoutMs).toBe(60 * 60_000)
+      expect(c.warnings.some((w) => w.includes("approvalTimeoutMs must be a non-negative number of ms"))).toBe(true)
+      expect(c.warnings.some((w) => w.includes("askTimeoutMs must be a non-negative number of ms"))).toBe(true)
+      expect(c.warnings.some((w) => w.includes("planTimeoutMs must be a non-negative number of ms"))).toBe(true)
+      expect(c.warnings.some((w) => w.includes("sudoTimeoutMs must be a non-negative number of ms"))).toBe(true)
+    })
+  })
+
   test("updateCheck: on by default, file flag + SENSUS_UPDATE_CHECK override; invalid warns", () => {
     expect(defaultConfig().updateCheck).toBe(true)
     withConfigFile({ updateCheck: false }, (resolve) => {

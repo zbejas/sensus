@@ -13,6 +13,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
+  applyUpdate,
   checkForUpdate,
   installerPrefixFor,
   isNewerVersion,
@@ -20,7 +21,9 @@ import {
   parseUpdateArgs,
   parseVersion,
   readUpdateCache,
+  runDaemonUpdate,
   runUpdate,
+  spawnDaemonRestart,
   updateAlertMessage,
   updateCachePath,
   writeUpdateCache,
@@ -353,5 +356,203 @@ describe("sensus update command", () => {
     const code = await runUpdate(["--nope"], io, {})
     expect(code).toBe(1)
     expect(errors.join("\n")).toContain("usage: sensus update")
+  })
+})
+
+describe("cloud-triggered daemon update", () => {
+  const installable = {
+    compiled: true,
+    execPath: "/home/u/.local/bin/sensus",
+  }
+
+  test("applyUpdate returns structured current/available/dry-run/installed outcomes", async () => {
+    const current = await applyUpdate(
+      { check: false, dryRun: false, version: `v${SENSUS_VERSION}` },
+      {},
+      installable,
+    )
+    expect(current).toMatchObject({
+      ok: true,
+      status: "current",
+      currentVersion: SENSUS_VERSION,
+      latestVersion: SENSUS_VERSION,
+    })
+
+    const release = fakeRelease("v9.9.9")
+    let installs = 0
+    const deps = {
+      ...installable,
+      fetchImpl: release.fetchImpl,
+      runInstaller: async () => {
+        installs++
+        return 0
+      },
+    }
+    const available = await applyUpdate({ check: true, dryRun: false, version: null }, {}, deps)
+    expect(available).toMatchObject({ ok: true, status: "available", latestVersion: "9.9.9" })
+    expect(installs).toBe(0)
+
+    const dry = await applyUpdate({ check: false, dryRun: true, version: null }, {}, deps)
+    expect(dry).toMatchObject({
+      ok: true,
+      status: "dry_run",
+      targetPath: "/home/u/.local/bin/sensus",
+      prefix: "/home/u/.local",
+    })
+    expect(installs).toBe(0)
+
+    const notes: string[] = []
+    const installed = await applyUpdate(
+      { check: false, dryRun: false, version: null },
+      {},
+      { ...deps, note: (message) => notes.push(message) },
+    )
+    expect(installed).toMatchObject({
+      ok: true,
+      status: "installed",
+      latestVersion: "9.9.9",
+      targetPath: "/home/u/.local/bin/sensus",
+      prefix: "/home/u/.local",
+    })
+    expect(installs).toBe(1)
+    expect(notes).toHaveLength(1)
+    // The progress line is emitted before the installer runs.
+    expect(notes[0]).toContain("updating v")
+    expect(notes[0]).toContain("9.9.9")
+  })
+
+  test("applyUpdate maps source/prefix/check/installer failures to structured codes", async () => {
+    const release = fakeRelease("v9.9.9")
+    const source = await applyUpdate(
+      { check: false, dryRun: false, version: null },
+      {},
+      { compiled: false, fetchImpl: release.fetchImpl },
+    )
+    expect(source).toMatchObject({ ok: false, code: "update_unavailable" })
+    if (!source.ok) expect(source.message).toContain("git pull")
+
+    const noPrefix = await applyUpdate(
+      { check: false, dryRun: false, version: null },
+      {},
+      { compiled: true, execPath: "/repo/dist/sensus", fetchImpl: release.fetchImpl },
+    )
+    expect(noPrefix).toMatchObject({ ok: false, code: "update_unavailable" })
+    if (!noPrefix.ok) {
+      expect(noPrefix.message).toContain("cannot install in place")
+      expect(noPrefix.hint).toContain("reinstall with the release installer")
+    }
+
+    const checkFailed = await applyUpdate({ check: true, dryRun: false, version: null }, {}, {
+      fetchImpl: failingFetch(),
+    })
+    expect(checkFailed).toMatchObject({ ok: false, code: "update_check_failed" })
+
+    const installerFailed = await applyUpdate(
+      { check: false, dryRun: false, version: null },
+      {},
+      { ...installable, fetchImpl: release.fetchImpl, runInstaller: async () => 3 },
+    )
+    expect(installerFailed).toMatchObject({ ok: false, code: "update_failed" })
+    if (!installerFailed.ok) expect(installerFailed.message).toContain("exited with code 3")
+  })
+
+  test("runDaemonUpdate checks without installing and installs with the restart seam", async () => {
+    const release = fakeRelease("v9.9.9")
+    let installs = 0
+    const check = await runDaemonUpdate(
+      { check: true, version: null },
+      {
+        env: {},
+        ...installable,
+        fetchImpl: release.fetchImpl,
+        runInstaller: async () => {
+          installs++
+          return 0
+        },
+      },
+    )
+    expect(check).toMatchObject({
+      ok: true,
+      result: {
+        ok: true,
+        action: "check",
+        latestVersion: "9.9.9",
+        updateAvailable: true,
+        updated: false,
+        restarting: false,
+      },
+    })
+    expect(installs).toBe(0)
+
+    const restartEnvs: NodeJS.ProcessEnv[] = []
+    const installed = await runDaemonUpdate(
+      { check: false, version: null },
+      {
+        env: { HOME: "/tmp/sensus-update-test" },
+        ...installable,
+        fetchImpl: release.fetchImpl,
+        runInstaller: async () => {
+          installs++
+          return 0
+        },
+        restart: (env) => {
+          restartEnvs.push(env)
+          return { ok: true }
+        },
+      },
+    )
+    expect(installed).toMatchObject({
+      ok: true,
+      result: {
+        ok: true,
+        action: "install",
+        latestVersion: "9.9.9",
+        updateAvailable: true,
+        updated: true,
+        restarting: true,
+      },
+    })
+    expect(installs).toBe(1)
+    expect(restartEnvs).toHaveLength(1)
+  })
+
+  test("runDaemonUpdate stays current and tells the user to restart when the spawn fails", async () => {
+    const current = await runDaemonUpdate(
+      { check: false, version: `v${SENSUS_VERSION}` },
+      { env: {}, ...installable },
+    )
+    expect(current).toMatchObject({
+      ok: true,
+      result: { ok: true, updateAvailable: false, updated: false, restarting: false },
+    })
+
+    const release = fakeRelease("v9.9.9")
+    const restartFailed = await runDaemonUpdate(
+      { check: false, version: null },
+      {
+        env: {},
+        ...installable,
+        fetchImpl: release.fetchImpl,
+        runInstaller: async () => 0,
+        restart: () => ({ ok: false, error: "spawn failed" }),
+      },
+    )
+    expect(restartFailed).toMatchObject({
+      ok: true,
+      result: { ok: true, updated: true, restarting: false },
+    })
+    if (restartFailed.ok) expect(restartFailed.result.message).toContain("sensus daemon restart")
+
+    const source = await runDaemonUpdate(
+      { check: false, version: null },
+      { env: {}, compiled: false, fetchImpl: release.fetchImpl },
+    )
+    expect(source).toMatchObject({ ok: false, code: "update_unavailable" })
+  })
+
+  test("spawnDaemonRestart fails as a value instead of throwing", () => {
+    const result = spawnDaemonRestart({ SENSUS_RUNTIME_DIR: "/dev/null/sensus-runtime", HOME: "/tmp" })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error.length).toBeGreaterThan(0)
   })
 })

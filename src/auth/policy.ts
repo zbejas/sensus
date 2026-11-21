@@ -29,6 +29,12 @@ export interface AuthPolicy {
    * is permanent (no trash) and also removes the transcript from search.
    */
   deleteTranscripts: boolean
+  /**
+   * Allow `daemon.update` over the cloud tunnel. Off by default: a
+   * cloud-triggered update replaces the Sensus binary and restarts the
+   * daemon, ending live shells, chats, and running turns.
+   */
+  updateDaemon: boolean
 }
 
 export function defaultPolicy(): AuthPolicy {
@@ -39,6 +45,7 @@ export function defaultPolicy(): AuthPolicy {
     allowedCwd: [],
     maxStreams: MAX_STREAMS,
     deleteTranscripts: false,
+    updateDaemon: false,
   }
 }
 
@@ -75,8 +82,10 @@ export function normalizePolicy(value: unknown): AuthPolicy | null {
     startDaemon: value["startDaemon"] === true,
     allowedCwd: [...new Set(allowedCwd)],
     maxStreams: clampMaxStreams(value["maxStreams"]),
-    // Absent in older policy files: the destructive opt-in defaults OFF.
+    // Absent in older policy files: both destructive/host-changing opt-ins
+    // default OFF.
     deleteTranscripts: value["deleteTranscripts"] === true,
+    updateDaemon: value["updateDaemon"] === true,
   }
 }
 
@@ -125,7 +134,7 @@ export function writePolicy(
   return { ok: true, path: authPolicyPath(home) }
 }
 
-/** Update the scopes in an existing policy, preserving allowedCwd/startDaemon. */
+/** Update the scopes in an existing policy, preserving allowedCwd and the opt-in flags. */
 export function updatePolicyScopes(policy: AuthPolicy, scopes: readonly Scope[]): AuthPolicy {
   const next = normalizePolicy({ ...policy, scopes })
   return next ?? { ...policy, scopes: [DEFAULT_SCOPE] }

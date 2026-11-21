@@ -556,9 +556,22 @@ async function stopDaemon(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<DaemonR
 /** `sensus daemon restart` — stop (idempotent) then start, reporting clearly. */
 async function restartDaemon(io: DaemonIo, env: NodeJS.ProcessEnv): Promise<DaemonRunResult> {
   io.out("sensus daemon: restarting…")
+  // The cloud-triggered update spawns this command while the old daemon must
+  // still answer the RPC. A bounded internal delay lets that reply land.
+  const delayMs = daemonRestartDelayMs(env)
+  if (delayMs > 0) await Bun.sleep(delayMs)
   const stopped = await stopDaemon(io, env)
   if (stopped !== 0) return stopped
   return await startDetached(io, env)
+}
+
+/** `SENSUS_DAEMON_RESTART_DELAY_MS` (internal seam); integer ms clamped to 0..30000. */
+function daemonRestartDelayMs(env: NodeJS.ProcessEnv): number {
+  const raw = env["SENSUS_DAEMON_RESTART_DELAY_MS"]
+  if (raw === undefined) return 0
+  const value = Number.parseInt(raw, 10)
+  if (!Number.isFinite(value)) return 0
+  return Math.min(30_000, Math.max(0, value))
 }
 
 /** `sensus daemon status` — pid + health; exit 0 only when healthy. */

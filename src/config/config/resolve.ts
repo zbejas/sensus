@@ -55,6 +55,10 @@ const TOP_KEYS = new Set([
   "layout",
   "autoChatOnly",
   "daemonPersistent",
+  "approvalTimeoutMs",
+  "askTimeoutMs",
+  "planTimeoutMs",
+  "sudoTimeoutMs",
   "updateCheck",
   "tabs",
   "keymap",
@@ -576,6 +580,18 @@ export function resolveConfig(
         out.daemonPersistent = raw["daemonPersistent"]
       } else if (raw["daemonPersistent"] !== undefined) {
         warnings.push(`config: daemonPersistent must be a boolean — using default`)
+      }
+      // approvalTimeoutMs / askTimeoutMs / planTimeoutMs / sudoTimeoutMs
+      // (docs/config.md "prompt timeouts"): no-client prompt holds, in
+      // milliseconds. `0` holds forever; a non-number or negative value keeps
+      // the default and warns.
+      for (const key of ["approvalTimeoutMs", "askTimeoutMs", "planTimeoutMs", "sudoTimeoutMs"] as const) {
+        const value = raw[key]
+        if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+          out[key] = Math.floor(value)
+        } else if (value !== undefined) {
+          warnings.push(`config: ${key} must be a non-negative number of ms — using default`)
+        }
       }
       // updateCheck (docs/config.md "updateCheck", docs/operations.md "Update"):
       // the launch update alert. A non-boolean keeps the default and warns.

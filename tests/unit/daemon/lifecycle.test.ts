@@ -21,8 +21,11 @@ import {
   DaemonLifecycle,
   versionMismatchAction,
   resolveApprovalTimeoutMs,
+  resolveAskTimeoutMs,
   resolvePersistent,
+  resolvePlanTimeoutMs,
   resolveReattachMaxAgeMs,
+  resolveSudoTimeoutMs,
   startDaemon,
   type StartDaemonResult,
 } from "../../../src/daemon/index.ts"
@@ -157,7 +160,7 @@ interface TestDaemon {
   cleanup: () => void
 }
 
-async function startTestDaemon(opts: { graceMs: number; approvalTimeoutMs?: number; chats?: boolean; persistent?: boolean; reattachMaxAgeMs?: number; reapIntervalMs?: number }): Promise<TestDaemon> {
+async function startTestDaemon(opts: { graceMs: number; approvalTimeoutMs?: number; askTimeoutMs?: number; planTimeoutMs?: number; sudoTimeoutMs?: number; chats?: boolean; persistent?: boolean; reattachMaxAgeMs?: number; reapIntervalMs?: number }): Promise<TestDaemon> {
   const runtime = mkdtempSync(join(tmpdir(), "sensus-lifecycle-run-"))
   const home = mkdtempSync(join(tmpdir(), "sensus-lifecycle-home-"))
   const prevHome = process.env["SENSUS_HOME"]
@@ -170,7 +173,10 @@ async function startTestDaemon(opts: { graceMs: number; approvalTimeoutMs?: numb
     argv: [],
     shell: "/bin/sh",
     graceMs: opts.graceMs,
-    approvalTimeoutMs: opts.approvalTimeoutMs ?? 60_000,
+    approvalTimeoutMs: opts.approvalTimeoutMs ?? 60 * 60_000,
+    askTimeoutMs: opts.askTimeoutMs ?? 60 * 60_000,
+    planTimeoutMs: opts.planTimeoutMs ?? 60 * 60_000,
+    sudoTimeoutMs: opts.sudoTimeoutMs ?? 60 * 60_000,
     // Explicit so an inherited SENSUS_DAEMON_PERSISTENT cannot change the test.
     persistent: opts.persistent ?? false,
     // Default the reaper off unless a test opts in, so it never races the
@@ -228,11 +234,35 @@ describe("daemon lifecycle: pure helpers", () => {
     expect(resolvePersistent({ SENSUS_DAEMON_PERSISTENT: "maybe" }, false)).toBe(false)
   })
 
-  test("resolveApprovalTimeoutMs: default 60s, override, invalid keeps default", () => {
-    expect(resolveApprovalTimeoutMs({})).toBe(60_000)
+  test("resolveApprovalTimeoutMs: default 1h, override, invalid keeps default", () => {
+    expect(resolveApprovalTimeoutMs({})).toBe(60 * 60_000)
     expect(resolveApprovalTimeoutMs({ SENSUS_DAEMON_APPROVAL_TIMEOUT_MS: "250" })).toBe(250)
-    expect(resolveApprovalTimeoutMs({ SENSUS_DAEMON_APPROVAL_TIMEOUT_MS: "nope" })).toBe(60_000)
-    expect(resolveApprovalTimeoutMs({ SENSUS_DAEMON_APPROVAL_TIMEOUT_MS: "-5" })).toBe(60_000)
+    expect(resolveApprovalTimeoutMs({ SENSUS_DAEMON_APPROVAL_TIMEOUT_MS: "nope" })).toBe(60 * 60_000)
+    expect(resolveApprovalTimeoutMs({ SENSUS_DAEMON_APPROVAL_TIMEOUT_MS: "-5" })).toBe(60 * 60_000)
+    expect(resolveApprovalTimeoutMs({}, 5_000)).toBe(5_000)
+    expect(resolveApprovalTimeoutMs({ SENSUS_DAEMON_APPROVAL_TIMEOUT_MS: "0" })).toBe(0)
+  })
+
+  test("resolveAskTimeoutMs: default 1h, override, invalid keeps default", () => {
+    expect(resolveAskTimeoutMs({})).toBe(60 * 60_000)
+    expect(resolveAskTimeoutMs({ SENSUS_DAEMON_ASK_TIMEOUT_MS: "250" })).toBe(250)
+    expect(resolveAskTimeoutMs({ SENSUS_DAEMON_ASK_TIMEOUT_MS: "nope" })).toBe(60 * 60_000)
+    expect(resolveAskTimeoutMs({ SENSUS_DAEMON_ASK_TIMEOUT_MS: "-5" })).toBe(60 * 60_000)
+    expect(resolveAskTimeoutMs({}, 5_000)).toBe(5_000)
+    expect(resolveAskTimeoutMs({ SENSUS_DAEMON_ASK_TIMEOUT_MS: "0" })).toBe(0)
+  })
+
+  test("resolvePlanTimeoutMs / resolveSudoTimeoutMs: default 1h, override, invalid keeps default", () => {
+    expect(resolvePlanTimeoutMs({})).toBe(60 * 60_000)
+    expect(resolvePlanTimeoutMs({ SENSUS_DAEMON_PLAN_TIMEOUT_MS: "250" })).toBe(250)
+    expect(resolvePlanTimeoutMs({ SENSUS_DAEMON_PLAN_TIMEOUT_MS: "nope" })).toBe(60 * 60_000)
+    expect(resolvePlanTimeoutMs({ SENSUS_DAEMON_PLAN_TIMEOUT_MS: "-5" })).toBe(60 * 60_000)
+    expect(resolvePlanTimeoutMs({}, 5_000)).toBe(5_000)
+    expect(resolveSudoTimeoutMs({})).toBe(60 * 60_000)
+    expect(resolveSudoTimeoutMs({ SENSUS_DAEMON_SUDO_TIMEOUT_MS: "250" })).toBe(250)
+    expect(resolveSudoTimeoutMs({ SENSUS_DAEMON_SUDO_TIMEOUT_MS: "nope" })).toBe(60 * 60_000)
+    expect(resolveSudoTimeoutMs({ SENSUS_DAEMON_SUDO_TIMEOUT_MS: "-5" })).toBe(60 * 60_000)
+    expect(resolveSudoTimeoutMs({}, 5_000)).toBe(5_000)
   })
 
   test("resolveReattachMaxAgeMs: default 8h, override, invalid keeps default, 0 disables", () => {
@@ -253,9 +283,15 @@ describe("daemon lifecycle: state machine", () => {
     const lc = new DaemonLifecycle({
       graceMs: 40,
       approvalTimeoutMs: 30,
+      askTimeoutMs: 30,
+      planTimeoutMs: 30,
+      sudoTimeoutMs: 30,
       persistent: false,
       anyTurnRunning: running ?? (() => false),
       pendingPromptChats: () => [],
+      pendingAskChats: () => [],
+      pendingPlanChats: () => [],
+      pendingSudoChats: () => [],
       denyPending: () => true,
       abortTurn: () => {},
       shutdown: () => events.push("shutdown"),
@@ -351,6 +387,33 @@ describe("daemon lifecycle: state machine", () => {
     expect(denied).toEqual(["c1"])
     // The timeout names its cause on the turn's structured record.
     expect(aborted).toEqual([{ id: "c1", reason: "approval-timeout" }])
+    lc.stop()
+  })
+
+  test("plan and sudo prompts use their own one-hour holds and abort reasons", async () => {
+    const seen: Array<{ id: string; reason?: string }> = []
+    let plans = ["p1"]
+    let sudos = ["s1"]
+    const { lc } = lifecycle({
+      planTimeoutMs: 15,
+      sudoTimeoutMs: 15,
+      pendingPromptChats: () => [...plans, ...sudos],
+      pendingPlanChats: () => plans,
+      pendingSudoChats: () => sudos,
+      anyTurnRunning: () => plans.length + sudos.length > 0,
+      denyPending: (id) => {
+        plans = plans.filter((x) => x !== id)
+        sudos = sudos.filter((x) => x !== id)
+        return true
+      },
+      abortTurn: (id, reason) => seen.push({ id, reason }),
+    })
+    lc.start()
+    await Bun.sleep(80)
+    expect(seen).toEqual([
+      { id: "p1", reason: "plan-timeout" },
+      { id: "s1", reason: "sudo-timeout" },
+    ])
     lc.stop()
   })
 
@@ -563,6 +626,66 @@ describe("daemon lifecycle: real daemon", () => {
       expect((card?.tool as Frame).status).toBe("rejected")
       expect(String((card?.tool as Frame).output ?? "")).not.toContain("SHOULD-NOT-RUN")
       expect(JSON.stringify(messages)).not.toContain("TOOLDONE-OK")
+    } finally {
+      observer.close()
+      daemon.cleanup()
+    }
+  }, 25000)
+
+  test("a no-client ask_user uses the ask window, not the approval window", async () => {
+    const daemon = await startTestDaemon({
+      graceMs: 60_000,
+      approvalTimeoutMs: 200,
+      askTimeoutMs: 800,
+      chats: true,
+    })
+    const first = new WsTestClient(wsUrl(daemon.result.tcp.port), auth)
+    let chatId = ""
+    try {
+      await first.open
+      await first.event("hello")
+      const opened = await first.request("chat.open", {})
+      chatId = String((opened.result as Frame).chatId)
+      const sent = await first.request("chat.send", { chatId, text: "ask:Proceed with the change?|yes/no" })
+      expect(sent.ok).toBe(true)
+      await first.event("chat.message", (f) => {
+        const message = f.message as Frame | undefined
+        const tool = message?.tool as Frame | undefined
+        return f.chatId === chatId && tool?.name === "ask_user" && tool?.status === "running"
+      })
+    } finally {
+      first.close()
+    }
+
+    // Past the approval window but inside the ask window, the question still
+    // waits (the two holds are independent).
+    await Bun.sleep(500)
+    const probe = new WsTestClient(wsUrl(daemon.result.tcp.port), auth)
+    try {
+      await probe.open
+      await probe.event("hello")
+      const state = (await probe.request("chat.attach", { chatId })).result as Frame
+      expect((state.state as Frame).status).toBe("streaming")
+      const messages = (state.state as Frame).messages as Frame[]
+      const ask = messages.find((m) => (m.tool as Frame)?.name === "ask_user")
+      expect(ask).toBeDefined()
+      expect((ask?.tool as Frame).status).toBe("running")
+    } finally {
+      probe.close()
+    }
+
+    // After the ask window with no client, the turn aborts and the card aborts.
+    await Bun.sleep(1_200)
+    const observer = new WsTestClient(wsUrl(daemon.result.tcp.port), auth)
+    try {
+      await observer.open
+      await observer.event("hello")
+      const state = (await observer.request("chat.attach", { chatId })).result as Frame
+      expect((state.state as Frame).status).toBe("idle")
+      const messages = (state.state as Frame).messages as Frame[]
+      const ask = messages.find((m) => (m.tool as Frame)?.name === "ask_user")
+      expect(ask).toBeDefined()
+      expect((ask?.tool as Frame).status).toBe("aborted")
     } finally {
       observer.close()
       daemon.cleanup()

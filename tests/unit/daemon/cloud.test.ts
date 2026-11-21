@@ -15,7 +15,8 @@ import type { ConnectorToCloud } from "../../../src/daemon/cloud/protocol.ts"
 import type { DaemonFrame, LocalDaemonLike } from "../../../src/daemon/cloud/daemonClient.ts"
 import { CloudTunnel, type TunnelBrokerLike } from "../../../src/daemon/cloud/tunnel.ts"
 import { generateIdentity } from "../../../src/auth/identity.ts"
-import { defaultPolicy } from "../../../src/auth/policy.ts"
+import { defaultPolicy, type AuthPolicy } from "../../../src/auth/policy.ts"
+import type { DaemonUpdateOutcome } from "../../../src/update.ts"
 
 const TOKEN = "0123456789abcdef0123456789abcdef"
 const auth = (token: string): Record<string, string> => ({ authorization: `Bearer ${token}` })
@@ -434,18 +435,15 @@ describe("cloud run approval", () => {
 
 type SocketListener = (event: unknown) => void
 
-/** A WebSocket that reports the cloud's duplicate-connection close immediately. */
-class ReplacedSocket {
-  static created = 0
+/** A WebSocket stand-in that records outbound frames and replays inbound ones. */
+class RecordingSocket {
+  static instances: RecordingSocket[] = []
   bufferedAmount = 0
+  private readonly sent: string[] = []
   private readonly listeners = new Map<string, SocketListener[]>()
 
   constructor() {
-    ReplacedSocket.created += 1
-    queueMicrotask(() => {
-      this.emit("open", {})
-      this.emit("close", { code: 4409, reason: "replaced_by_new_connection" })
-    })
+    RecordingSocket.instances.push(this)
   }
 
   addEventListener(type: string, listener: SocketListener): void {
@@ -454,17 +452,190 @@ class ReplacedSocket {
     this.listeners.set(type, list)
   }
 
-  send(): void {}
-  close(): void {}
+  send(text: string): void {
+    this.sent.push(text)
+  }
 
-  private emit(type: string, event: unknown): void {
+  close(): void {
+    // no-op: the tunnel owns teardown
+  }
+
+  emit(type: string, event: unknown): void {
     for (const listener of this.listeners.get(type) ?? []) listener(event)
+  }
+
+  frames(): Array<Record<string, unknown>> {
+    return this.sent.map((text) => JSON.parse(text) as Record<string, unknown>)
   }
 }
 
+/** A socket that reports the cloud's duplicate-connection close immediately. */
+class ReplacedSocket extends RecordingSocket {
+  constructor() {
+    super()
+    queueMicrotask(() => {
+      this.emit("open", {})
+      this.emit("close", { code: 4409, reason: "replaced_by_new_connection" })
+    })
+  }
+}
+
+function updateBroker(opts: {
+  policy?: Partial<AuthPolicy>
+  updateDaemon?: (input: { check: boolean; version: string | null }) => Promise<DaemonUpdateOutcome>
+}): RelayBroker {
+  return new RelayBroker({
+    policy: { ...defaultPolicy(), scopes: ["view", "control"], ...opts.policy },
+    discover: async () => ({ ok: false, code: "daemon_socket_missing", message: "not running", state: "stopped" }),
+    dataDir: "/nonexistent-cloud-update",
+    ...(opts.updateDaemon !== undefined ? { updateDaemon: opts.updateDaemon } : {}),
+  })
+}
+
+const checkedUpdate: DaemonUpdateOutcome = {
+  ok: true,
+  result: {
+    ok: true,
+    action: "check",
+    currentVersion: "0.1.0",
+    latestVersion: "0.2.0",
+    updateAvailable: true,
+    updated: false,
+    restarting: false,
+  },
+}
+
+describe("daemon.update", () => {
+  test("requires control and the host-local updateDaemon opt-in", async () => {
+    const noControl = updateBroker({
+      policy: { scopes: ["view"], updateDaemon: true },
+      updateDaemon: async () => checkedUpdate,
+    })
+    expect(await noControl.rpc("daemon.update", { check: true })).toMatchObject({
+      ok: false,
+      code: "scope_required",
+    })
+
+    const disabled = updateBroker({
+      policy: { updateDaemon: false },
+      updateDaemon: async () => checkedUpdate,
+    })
+    const refusal = await disabled.rpc("daemon.update", { check: true })
+    expect(refusal).toMatchObject({ ok: false, code: "update_disabled" })
+    expect(refusal.message).toContain("sensus cloud scopes --update on")
+
+    const unavailable = updateBroker({ policy: { updateDaemon: true } })
+    expect(await unavailable.rpc("daemon.update", { check: true })).toEqual({
+      ok: false,
+      code: "update_unavailable",
+      message: "this daemon cannot update itself",
+    })
+  })
+
+  test("maps check/install results and validates params", async () => {
+    const calls: Array<{ check: boolean; version: string | null }> = []
+    const installed: DaemonUpdateOutcome = {
+      ok: true,
+      result: {
+        ok: true,
+        action: "install",
+        currentVersion: "0.1.0",
+        latestVersion: "0.2.0",
+        updateAvailable: true,
+        updated: true,
+        restarting: true,
+        message: "installed v0.2.0; the daemon is restarting",
+      },
+    }
+    const broker = updateBroker({
+      policy: { updateDaemon: true },
+      updateDaemon: async (input) => {
+        calls.push(input)
+        return input.check ? checkedUpdate : installed
+      },
+    })
+
+    expect(await broker.rpc("daemon.update", { check: true })).toEqual(checkedUpdate)
+    expect(await broker.rpc("daemon.update", { version: "v0.2.0" })).toEqual(installed)
+    expect(await broker.rpc("daemon.update", {})).toEqual(installed)
+    expect(await broker.rpc("daemon.update", { version: "LATEST" })).toEqual(installed)
+    expect(calls).toEqual([
+      { check: true, version: null },
+      { check: false, version: "v0.2.0" },
+      { check: false, version: null },
+      { check: false, version: null },
+    ])
+
+    const invalid: unknown[] = [
+      { check: "yes" },
+      { version: 42 },
+      { version: "" },
+      { version: "-bad" },
+      { version: "../escape" },
+      { version: "x".repeat(41) },
+    ]
+    for (const params of invalid) {
+      expect(await broker.rpc("daemon.update", params)).toMatchObject({ ok: false, code: "invalid_request" })
+    }
+    expect(calls).toHaveLength(4)
+  })
+
+  test("forwards a typed update failure without a synthetic success", async () => {
+    const broker = updateBroker({
+      policy: { updateDaemon: true },
+      updateDaemon: async () => ({ ok: false, code: "update_failed", message: "installer exited with code 3" }),
+    })
+    expect(await broker.rpc("daemon.update", {})).toEqual({
+      ok: false,
+      code: "update_failed",
+      message: "installer exited with code 3",
+    })
+  })
+})
+
+describe("cloud tunnel daemon.update advertisement", () => {
+  async function helloFeatures(policy: AuthPolicy): Promise<string[]> {
+    const before = RecordingSocket.instances.length
+    const tunnel = new CloudTunnel({
+      cloudUrl: "https://cloud.example",
+      instanceId: "inst_1",
+      deviceToken: "token",
+      identity: generateIdentity(),
+      policy,
+      broker: fakeBroker(),
+      connectorVersion: "9.9.9",
+      host: { hostname: "box", platform: "linux", arch: "x64" },
+      WebSocketImpl: RecordingSocket as unknown as typeof WebSocket,
+      reconnectBaseMs: 60_000,
+      reconnectMaxMs: 60_000,
+    })
+    tunnel.start()
+    const socket = RecordingSocket.instances[before]
+    expect(socket).toBeDefined()
+    socket!.emit("open", {})
+    socket!.emit("message", { data: JSON.stringify({ t: "challenge", nonce: "nonce", exp: Date.now() + 10_000 }) })
+    socket!.emit("message", { data: JSON.stringify({ t: "auth.ok" }) })
+    await Bun.sleep(20)
+    const hello = socket!.frames().find((frame) => frame["t"] === "hello")
+    await tunnel.stop()
+    return (hello?.["features"] as string[] | undefined) ?? []
+  }
+
+  test("advertises only when updateDaemon is on and control is granted", async () => {
+    const enabled = await helloFeatures({ ...defaultPolicy(), scopes: ["view", "control"], updateDaemon: true })
+    expect(enabled).toContain("daemon.update")
+
+    const noControl = await helloFeatures({ ...defaultPolicy(), scopes: ["view"], updateDaemon: true })
+    expect(noControl).not.toContain("daemon.update")
+
+    const disabled = await helloFeatures({ ...defaultPolicy(), scopes: ["view", "control"], updateDaemon: false })
+    expect(disabled).not.toContain("daemon.update")
+  })
+})
+
 describe("cloud tunnel duplicate connections", () => {
   test("a 4409 replaced_by_new_connection stops and never reconnects", async () => {
-    ReplacedSocket.created = 0
+    const before = RecordingSocket.instances.length
     const stopped: string[] = []
     const warnings: string[] = []
     const tunnel = new CloudTunnel({
@@ -489,7 +660,7 @@ describe("cloud tunnel duplicate connections", () => {
     expect(tunnel.state).toBe("stopped")
     expect(stopped).toEqual(["replaced"])
     expect(warnings.join("\n")).toContain("took over this cloud instance")
-    // The old behavior reconnected after the close; only one socket may exist.
-    expect(ReplacedSocket.created).toBe(1)
+    // No second socket: the old code reconnected after the close.
+    expect(RecordingSocket.instances.length).toBe(before + 1)
   })
 })

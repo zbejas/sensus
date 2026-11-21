@@ -17,11 +17,13 @@
  * check must never throw into the boot path (AGENTS.md rule 10).
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { closeSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs"
 import { basename, dirname, join } from "node:path"
 import { errorMessage } from "./core/util.ts"
 import { sensusHomeFrom, sensusStateDirFrom } from "./config/config.ts"
 import type { ReconcileCloudServiceResult } from "./daemon/cloud/reconcile.ts"
+import { daemonLogPath, resolveDaemonRuntimeDir } from "./daemon/paths.ts"
+import { compiledEntry, daemonSelfArgv } from "./daemon/selfExec.ts"
 import { SENSUS_VERSION } from "./version.ts"
 
 /** How long a completed check is reused before asking again (24h). */
@@ -311,6 +313,136 @@ async function fetchInstaller(
   }
 }
 
+/** The structured result of the shared check/install decision tree. */
+export type UpdateApplyOutcome =
+  | {
+      ok: true
+      status: "current" | "available" | "installed" | "dry_run"
+      currentVersion: string
+      latestVersion: string
+      targetPath?: string
+      prefix?: string
+    }
+  | {
+      ok: false
+      code: "update_check_failed" | "update_unavailable" | "update_failed"
+      message: string
+      /** Optional second human line (the CLI prints `sensus update: <hint>`). */
+      hint?: string
+    }
+
+export interface UpdateApplyDeps extends UpdateDeps {
+  /** Progress line emitted before the installer runs (the CLI's "updating" line). */
+  note?: (message: string) => void
+}
+
+/**
+ * The shared check/install decision tree behind `sensus update` and the
+ * cloud-triggered `daemon.update` op. It performs no user-facing printing: the
+ * caller owns the output and the service reconcile. `check` never installs.
+ */
+export async function applyUpdate(
+  request: { check: boolean; dryRun: boolean; version: string | null },
+  env: NodeJS.ProcessEnv,
+  deps: UpdateApplyDeps = {},
+): Promise<UpdateApplyOutcome> {
+  const current = SENSUS_VERSION
+  const fetchImpl = deps.fetchImpl ?? fetch
+  const now = deps.now ?? Date.now
+  const timeoutMs = deps.timeoutMs ?? FETCH_TIMEOUT_MS
+
+  // Resolve the target release: the pinned tag, or the latest release.
+  let target = request.version === null ? null : normalizeTag(request.version)
+  if (target === null) {
+    const fetched = await fetchLatestTag({
+      env,
+      fetchImpl,
+      ...(deps.timeoutMs !== undefined ? { timeoutMs: deps.timeoutMs } : {}),
+    })
+    if (!fetched.ok) {
+      return { ok: false, code: "update_check_failed", message: `could not check for updates: ${fetched.error}` }
+    }
+    target = fetched.tag
+    // Refresh the launch alert's cache with what this explicit check learned.
+    writeUpdateCache(updateCachePath(sensusStateDirFrom(env)), { latest: target, checkedAt: now() })
+  }
+
+  if (normalizeTag(target) === normalizeTag(current)) {
+    return { ok: true, status: "current", currentVersion: current, latestVersion: target }
+  }
+  if (request.version === null && !isNewerVersion(target, current)) {
+    // A locally built binary ahead of the latest release.
+    return { ok: true, status: "current", currentVersion: current, latestVersion: target }
+  }
+  if (request.check) {
+    return { ok: true, status: "available", currentVersion: current, latestVersion: target }
+  }
+
+  // Installing needs the compiled binary: a source run updates via git.
+  const compiled = deps.compiled ?? import.meta.url.includes("$bunfs")
+  if (!compiled) {
+    return {
+      ok: false,
+      code: "update_unavailable",
+      message: "this is a source checkout — update with `git pull && bun install` (docs/development).",
+    }
+  }
+  const envPrefix = env["PREFIX"]
+  const prefix =
+    envPrefix !== undefined && envPrefix.length > 0
+      ? envPrefix
+      : installerPrefixFor(deps.execPath ?? process.execPath)
+  if (prefix === null) {
+    return {
+      ok: false,
+      code: "update_unavailable",
+      message: `cannot install in place (running binary is ${deps.execPath ?? process.execPath}).`,
+      hint: "reinstall with the release installer: curl -fsSL https://sensus.sh/install | bash",
+    }
+  }
+  const targetPath = join(prefix, "bin", "sensus")
+
+  if (request.dryRun) {
+    return {
+      ok: true,
+      status: "dry_run",
+      currentVersion: current,
+      latestVersion: target,
+      targetPath,
+      prefix,
+    }
+  }
+
+  const installer = await fetchInstaller(env, fetchImpl, timeoutMs)
+  if (!installer.ok) {
+    return { ok: false, code: "update_failed", message: `could not download the installer: ${installer.error}` }
+  }
+
+  deps.note?.(`sensus update: updating v${normalizeTag(current)} → v${normalizeTag(target)} (${targetPath})`)
+  const childEnv: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) if (value !== undefined) childEnv[key] = value
+  childEnv["PREFIX"] = prefix
+  if (request.version !== null) childEnv["SENSUS_RELEASE_VERSION"] = normalizeTag(target)
+  const run = deps.runInstaller ?? spawnInstaller
+  let code: number
+  try {
+    code = await run(installer.script, [], childEnv)
+  } catch (e) {
+    return { ok: false, code: "update_failed", message: `installer failed: ${errorMessage(e)}` }
+  }
+  if (code !== 0) {
+    return { ok: false, code: "update_failed", message: `installer exited with code ${code}` }
+  }
+  return {
+    ok: true,
+    status: "installed",
+    currentVersion: current,
+    latestVersion: target,
+    targetPath,
+    prefix,
+  }
+}
+
 const UPDATE_USAGE = `usage: sensus update [--check] [--dry-run] [--version <tag>]
        sensus upgrade   (alias for sensus update)
 
@@ -345,91 +477,40 @@ export async function runUpdate(
     return 0
   }
 
-  const current = SENSUS_VERSION
-  const fetchImpl = deps.fetchImpl ?? fetch
-  const now = deps.now ?? Date.now
-  const timeoutMs = deps.timeoutMs ?? FETCH_TIMEOUT_MS
+  const outcome = await applyUpdate(
+    { check: options.check, dryRun: options.dryRun, version: options.version },
+    env,
+    { ...deps, note: (message) => io.out(message) },
+  )
+  if (!outcome.ok) {
+    io.err(`sensus update: ${outcome.message}`)
+    if (outcome.hint !== undefined) io.err(`sensus update: ${outcome.hint}`)
+    return 1
+  }
 
-  // Resolve the target release: the pinned tag, or the latest release.
-  let target = options.version
-  if (target === null) {
-    const fetched = await fetchLatestTag({
-      env,
-      fetchImpl,
-      ...(deps.timeoutMs !== undefined ? { timeoutMs: deps.timeoutMs } : {}),
-    })
-    if (!fetched.ok) {
-      io.err(`sensus update: could not check for updates: ${fetched.error}`)
-      return 1
+  const current = outcome.currentVersion
+  if (outcome.status === "current") {
+    if (normalizeTag(outcome.latestVersion) === normalizeTag(current)) {
+      io.out(`sensus is up to date (v${normalizeTag(current)})`)
+    } else {
+      io.out(`sensus is up to date (v${normalizeTag(current)}; latest release is v${normalizeTag(outcome.latestVersion)})`)
     }
-    target = fetched.tag
-    // Refresh the launch alert's cache with what this explicit check learned.
-    writeUpdateCache(updateCachePath(sensusStateDirFrom(env)), { latest: target, checkedAt: now() })
-  }
-
-  if (normalizeTag(target) === normalizeTag(current)) {
-    io.out(`sensus is up to date (v${normalizeTag(current)})`)
     return 0
   }
-  if (options.version === null && !isNewerVersion(target, current)) {
-    // A locally built binary ahead of the latest release.
-    io.out(`sensus is up to date (v${normalizeTag(current)}; latest release is v${normalizeTag(target)})`)
-    return 0
-  }
-  if (options.check) {
-    io.out(`sensus v${normalizeTag(target)} is available (you have v${normalizeTag(current)}) — run \`sensus update\``)
-    return 0
-  }
-
-  // Installing needs the compiled binary: a source run updates via git.
-  const compiled = deps.compiled ?? import.meta.url.includes("$bunfs")
-  if (!compiled) {
-    io.err("sensus update: this is a source checkout — update with `git pull && bun install` (docs/development).")
-    return 1
-  }
-  const envPrefix = env["PREFIX"]
-  const prefix =
-    envPrefix !== undefined && envPrefix.length > 0
-      ? envPrefix
-      : installerPrefixFor(deps.execPath ?? process.execPath)
-  if (prefix === null) {
-    io.err(`sensus update: cannot install in place (running binary is ${deps.execPath ?? process.execPath}).`)
-    io.err("sensus update: reinstall with the release installer: curl -fsSL https://sensus.sh/install | bash")
-    return 1
-  }
-  const targetPath = join(prefix, "bin", "sensus")
-
-  if (options.dryRun) {
+  if (outcome.status === "available") {
     io.out(
-      `sensus update: would install v${normalizeTag(target)} to ${targetPath} (running v${normalizeTag(current)})`,
+      `sensus v${normalizeTag(outcome.latestVersion)} is available (you have v${normalizeTag(current)}) — run \`sensus update\``,
+    )
+    return 0
+  }
+  if (outcome.status === "dry_run") {
+    io.out(
+      `sensus update: would install v${normalizeTag(outcome.latestVersion)} to ${outcome.targetPath ?? ""} (running v${normalizeTag(current)})`,
     )
     return 0
   }
 
-  const installer = await fetchInstaller(env, fetchImpl, timeoutMs)
-  if (!installer.ok) {
-    io.err(`sensus update: could not download the installer: ${installer.error}`)
-    return 1
-  }
-
-  io.out(`sensus update: updating v${normalizeTag(current)} → v${normalizeTag(target)} (${targetPath})`)
-  const childEnv: Record<string, string> = {}
-  for (const [key, value] of Object.entries(env)) if (value !== undefined) childEnv[key] = value
-  childEnv["PREFIX"] = prefix
-  if (options.version !== null) childEnv["SENSUS_RELEASE_VERSION"] = options.version
-  const run = deps.runInstaller ?? spawnInstaller
-  let code: number
-  try {
-    code = await run(installer.script, [], childEnv)
-  } catch (e) {
-    io.err(`sensus update: installer failed: ${errorMessage(e)}`)
-    return 1
-  }
-  if (code !== 0) {
-    io.err(`sensus update: installer exited with code ${code}`)
-    return 1
-  }
-  io.out(`sensus update: installed v${normalizeTag(target)} — restart your sensus session to use it.`)
+  io.out(`sensus update: installed v${normalizeTag(outcome.latestVersion)} — restart your sensus session to use it.`)
   // Repair the always-on layer for a host that paired before `cloud pair`
   // started installing the user service. The running daemon (if any) is left
   // alone; the unit is enabled for the next login/boot (docs/auth.md).
@@ -458,4 +539,168 @@ export async function runUpdate(
   }
   io.out("sensus update: `sensus daemon restart` moves the running daemon to the new version (it will lose live shells).")
   return 0
+}
+
+// ---- cloud-triggered daemon update (`daemon.update`) -------------------------
+
+export interface DaemonUpdateInput {
+  check: boolean
+  version: string | null
+}
+
+/** The cloud-facing result of a `daemon.update` request. */
+export type DaemonUpdateResult = {
+  /** Inner success marker (the cloud's result normalizer requires it). */
+  ok: true
+  action: "check" | "install"
+  currentVersion: string
+  latestVersion: string | null
+  updateAvailable: boolean
+  updated: boolean
+  restarting: boolean
+  message?: string
+}
+
+export type DaemonUpdateOutcome =
+  | { ok: true; result: DaemonUpdateResult }
+  | { ok: false; code: "update_check_failed" | "update_unavailable" | "update_failed"; message: string }
+
+export interface DaemonUpdateOptions {
+  env: NodeJS.ProcessEnv
+  fetchImpl?: typeof fetch
+  runInstaller?: (script: string, args: string[], env: Record<string, string>) => Promise<number>
+  compiled?: boolean
+  execPath?: string
+  /** Test seam: spawn the detached restart. Defaults to `spawnDaemonRestart`. */
+  restart?: (env: NodeJS.ProcessEnv) => { ok: true } | { ok: false; error: string }
+  timeoutMs?: number
+}
+
+/**
+ * The daemon-side `daemon.update` runner. `check: true` never installs. A
+ * successful install restarts the daemon (so the RPC reply lands first, the
+ * restart helper sleeps briefly); if that spawn fails the caller is told to
+ * run `sensus daemon restart`. Never throws.
+ */
+export async function runDaemonUpdate(
+  input: DaemonUpdateInput,
+  opts: DaemonUpdateOptions,
+): Promise<DaemonUpdateOutcome> {
+  const outcome = await applyUpdate(
+    { check: input.check, dryRun: false, version: input.version },
+    opts.env,
+    {
+      ...(opts.fetchImpl !== undefined ? { fetchImpl: opts.fetchImpl } : {}),
+      ...(opts.runInstaller !== undefined ? { runInstaller: opts.runInstaller } : {}),
+      ...(opts.compiled !== undefined ? { compiled: opts.compiled } : {}),
+      ...(opts.execPath !== undefined ? { execPath: opts.execPath } : {}),
+      ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+    },
+  )
+  if (!outcome.ok) {
+    return {
+      ok: false,
+      code: outcome.code,
+      message: outcome.hint !== undefined ? `${outcome.message} ${outcome.hint}` : outcome.message,
+    }
+  }
+
+  const action: DaemonUpdateResult["action"] = input.check ? "check" : "install"
+  const currentVersion = outcome.currentVersion
+  const latestVersion: string | null = outcome.latestVersion
+  const updateAvailable = isNewerVersion(outcome.latestVersion, currentVersion)
+
+  if (outcome.status === "current") {
+    return {
+      ok: true,
+      result: {
+        ok: true,
+        action,
+        currentVersion,
+        latestVersion,
+        updateAvailable: false,
+        updated: false,
+        restarting: false,
+        message: `sensus is up to date (v${normalizeTag(currentVersion)})`,
+      },
+    }
+  }
+  if (outcome.status === "available" || outcome.status === "dry_run") {
+    return {
+      ok: true,
+      result: {
+        ok: true,
+        action,
+        currentVersion,
+        latestVersion,
+        updateAvailable,
+        updated: false,
+        restarting: false,
+        message: `sensus v${normalizeTag(outcome.latestVersion)} is available (you have v${normalizeTag(currentVersion)})`,
+      },
+    }
+  }
+
+  // Installed: restart the daemon so it runs the new binary.
+  let restart: { ok: true } | { ok: false; error: string }
+  try {
+    restart = (opts.restart ?? spawnDaemonRestart)(opts.env)
+  } catch (e) {
+    restart = { ok: false, error: errorMessage(e) }
+  }
+  const restarting = restart.ok
+  return {
+    ok: true,
+    result: {
+      ok: true,
+      action,
+      currentVersion,
+      latestVersion,
+      updateAvailable,
+      updated: true,
+      restarting,
+      message: restarting
+        ? `installed v${normalizeTag(outcome.latestVersion)}; the daemon is restarting`
+        : `installed v${normalizeTag(outcome.latestVersion)} but the daemon did not restart (${restart.error}); run \`sensus daemon restart\` to use the new version`,
+    },
+  }
+}
+
+/**
+ * Spawn a detached `sensus daemon restart` for the cloud-triggered update. The
+ * restart command honors `SENSUS_DAEMON_RESTART_DELAY_MS` so the RPC reply is
+ * sent before the old daemon exits. Never throws.
+ */
+export function spawnDaemonRestart(env: NodeJS.ProcessEnv): { ok: true } | { ok: false; error: string } {
+  try {
+    const runtimeDir = resolveDaemonRuntimeDir(env)
+    const logPath = daemonLogPath(runtimeDir)
+    mkdirSync(runtimeDir, { recursive: true, mode: 0o700 })
+    // Bun.spawn's env is Record<string, string|undefined>; drop undefined so
+    // the child receives a clean environment.
+    const childEnv: Record<string, string> = {}
+    for (const [key, value] of Object.entries(env)) if (value !== undefined) childEnv[key] = value
+    childEnv["SENSUS_DAEMON_RESTART_DELAY_MS"] = "2000"
+    const fd = openSync(logPath, "a", 0o600)
+    try {
+      const child = Bun.spawn(
+        [...daemonSelfArgv(process.execPath, Bun.main, compiledEntry()), "daemon", "restart"],
+        {
+          detached: true,
+          stdio: ["ignore", fd, fd],
+          env: childEnv,
+        },
+      )
+      child.unref()
+      return { ok: true }
+    } finally {
+      try {
+        closeSync(fd)
+      } catch {
+        // best-effort
+      }
+    }
+  } catch (e) {
+    return { ok: false, error: errorMessage(e) }
+  }
 }

@@ -42,7 +42,7 @@ sensus (client)                          sensus daemon (worker; Elysia)
 | `src/daemon/shells.ts` | `ShellRegistry`: the daemon-owned PTY shells, roles (D11), the bounded replay buffer (D12), client facts (D2) |
 | `src/daemon/chats.ts` | `ChatRegistry`: the daemon-owned agent chats — opens `ChatSession`s through `ChatHost`, mirrors the engine `ChatEvent` stream, answers approvals via `resolveCard` and sudo via the `requestSudo` dep, and derives the `ChatMeta` readouts (P4c-ii) |
 | `src/daemon/ws.ts` | `GET /v1/ws`: upgrade + auth, the request/response/event envelope, the terminal + chat op dispatch, bounded per-client queues, the `hello`/grace seam |
-| `src/daemon/lifecycle.ts` | The lifetime policy (P3c-iii): grace/idle exit (held while a live pane shell or a paired cloud tunnel exists), the idle reaper that kills panes inactive past the re-attach window (`SENSUS_DAEMON_REATTACH_MAX_AGE_MS`), detached-turn keep-alive, the no-client approval hold, and the pure `versionMismatchAction` handshake helper |
+| `src/daemon/lifecycle.ts` | The lifetime policy (P3c-iii): grace/idle exit (held while a live pane shell or a paired cloud tunnel exists), the idle reaper that kills panes inactive past the re-attach window (`SENSUS_DAEMON_REATTACH_MAX_AGE_MS`), detached-turn keep-alive, the per-kind no-client prompt holds (`approvalTimeoutMs` / `askTimeoutMs` / `planTimeoutMs` / `sudoTimeoutMs`), and the pure `versionMismatchAction` handshake helper |
 | `src/daemon/cli.ts` | `sensus daemon {serve,start,stop,restart,status,logs,install,uninstall}` lifecycle |
 | `src/daemon/service.ts` | The persistent user service (P6): systemd/launchd unit rendering + install/uninstall through an injectable runner |
 | `src/daemon/triggers.ts` | Local condition triggers (P6): rule matching + the bounded `triggers.jsonl` writer + the sink decoration |
@@ -714,14 +714,17 @@ between daemon boot and the first reap tick.
 
 **No-client approvals/sudo (D10).** Pending approval / plan / sudo / `ask_user`
 prompts **hold** when no client is attached — they are never declined the
-instant the last client leaves. After `SENSUS_DAEMON_APPROVAL_TIMEOUT_MS`
-(default `60000`) the daemon records the pending calls as **denied** and aborts
-the turn, so a no-client turn can never sit blocked forever and nothing ever
-executes unapproved. A client reconnecting during the hold cancels the timer and
-can answer normally. `chat.abort` still declines a pending sudo/approval at
-once, and when a client that was the only watcher of a blocked chat leaves
-while *other* clients remain, that orphaned prompt is denied immediately (no
-present client can answer it).
+instant the last client leaves. Every prompt kind waits one hour by default:
+a single tool approval (`SENSUS_DAEMON_APPROVAL_TIMEOUT_MS`), an `ask_user`
+question (`SENSUS_DAEMON_ASK_TIMEOUT_MS`), an approval-batch plan
+(`SENSUS_DAEMON_PLAN_TIMEOUT_MS`), and sudo (`SENSUS_DAEMON_SUDO_TIMEOUT_MS`).
+On expiry the call/plan is recorded as denied (a question just aborts) and the
+turn ends, so a no-client turn can never sit blocked forever and nothing ever
+executes unapproved. Every timeout accepts `0` to hold indefinitely. A client
+reconnecting during the hold cancels the timer and can answer normally.
+`chat.abort` still declines a pending sudo/approval at once, and when a client
+that was the only watcher of a blocked chat leaves while *other* clients remain,
+that orphaned prompt is denied immediately (no present client can answer it).
 
 **Version handshake (D21).** `/v1/info` carries `shells` (the live PTY shell
 count) and `persistent`. The pure helper `versionMismatchAction(localVersion,

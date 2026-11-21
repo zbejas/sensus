@@ -112,11 +112,17 @@ export type { WsEndpoint, WsEndpointDeps, WsSocketData } from "./ws.ts"
 export {
   DaemonLifecycle,
   DEFAULT_APPROVAL_TIMEOUT_MS,
+  DEFAULT_ASK_TIMEOUT_MS,
+  DEFAULT_PLAN_TIMEOUT_MS,
+  DEFAULT_SUDO_TIMEOUT_MS,
   DEFAULT_REATTACH_MAX_AGE_MS,
   REAP_INTERVAL_MS,
   resolveApprovalTimeoutMs,
+  resolveAskTimeoutMs,
   resolvePersistent,
+  resolvePlanTimeoutMs,
   resolveReattachMaxAgeMs,
+  resolveSudoTimeoutMs,
 } from "./lifecycle.ts"
 export { versionMismatchAction } from "./version.ts"
 export { compiledEntry, daemonSelfArgv } from "./selfExec.ts"

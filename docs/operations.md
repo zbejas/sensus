@@ -146,10 +146,11 @@ only idle-exits once no pane remains — this is what lets a killed/restarted
 client re-attach to a live pane and a running command survive. Set
 `SENSUS_DAEMON_PERSISTENT=1` — or `daemonPersistent: true` in `config.json`
 (docs/config.md "daemon") — to make a daemon that never grace-exits. With no
-client, a pending approval/sudo prompt **holds**; after
-`SENSUS_DAEMON_APPROVAL_TIMEOUT_MS` (default `60000` ms) the turn is aborted and
-the call denied, so nothing ever executes unapproved. `/v1/info` reports the
-live `shells` count and `persistent` flag.
+client, a pending approval/plan/sudo prompt **holds**. Every prompt kind waits
+one hour by default: a single tool approval (`SENSUS_DAEMON_APPROVAL_TIMEOUT_MS`),
+an `ask_user` question (`SENSUS_DAEMON_ASK_TIMEOUT_MS`), a plan
+(`SENSUS_DAEMON_PLAN_TIMEOUT_MS`), and sudo (`SENSUS_DAEMON_SUDO_TIMEOUT_MS`).
+`/v1/info` reports the live `shells` count and `persistent` flag.
 
 **Idle reaper.** A daemon never accumulates sessions forever: a shell left
 **inactive** (no attached client) for longer than
@@ -430,6 +431,30 @@ binary (`src/update.ts`, dispatched by `cli.ts`, awaited by `index.tsx`).
   `sensus daemon restart` moves it to the new version (it loses live shells), or the boot
   D21 handshake offers restart-vs-defer ([`daemon-api.md`](daemon-api.md) "Version
   handshake").
+
+### Cloud-triggered update (opt-in)
+
+A paired host can let the panel ask it to check or install a release. This is off by
+default and also requires the `control` scope:
+
+```bash
+sensus cloud scopes --update on    # allow cloud-triggered updates
+sensus cloud scopes --update off   # the default
+```
+
+With the flag on and `control` granted, `hello.features` advertises `daemon.update`. The
+cloud calls it with `{ check: true }` to report only, or `{ check: false, version? }` to
+install; `version: "latest"` (or absent) means the latest release. The host derives the
+same prefix `sensus update` uses, downloads the release installer, and replaces the running
+binary. On success it spawns `sensus daemon restart` detached. The restart honors
+`SENSUS_DAEMON_RESTART_DELAY_MS` (2 s) so the RPC reply is sent before the old daemon
+exits; live shells, chats, and running turns end, and the daemon reconnects with the new
+version. If the spawn fails, the result reports `restarting: false` and tells the user to
+run `sensus daemon restart`. A source checkout or a binary outside `<prefix>/bin/sensus`
+returns `update_unavailable`. The installer runs as the daemon user: if that user cannot
+write the install prefix, the update fails with `update_failed` instead of escalating.
+Run the daemon as the install owner or use a user-owned prefix. `check: true` never
+installs, and `sensus update` run on the host never needs this opt-in.
 
 **Launch alert.** At boot the client checks the latest release at most once per 24h (the
 answer is cached at `<state-dir>/update-check.json`, docs/config.md "Locations") and

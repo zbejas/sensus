@@ -346,6 +346,10 @@ export class CloudTunnel {
         if (this.opts.broker.chatImages === true) features.push("chat.images")
         // Deletion is permanently destructive and off unless the host opted in.
         if (this.opts.policy.deleteTranscripts === true) features.push("transcript.delete")
+        // Self-update replaces the binary and restarts the daemon: control + opt-in.
+        if (this.opts.policy.updateDaemon === true && hasScope(this.opts.policy.scopes, "control")) {
+          features.push("daemon.update")
+        }
         this.send(
           {
             t: "hello",

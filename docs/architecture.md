@@ -246,7 +246,7 @@ under `src/daemon/**` (D18).
 | `shells.ts` | `ShellRegistry`: the daemon-owned PTY shells (`PtySession`), controller/observer roles (D11), the bounded replay buffer (D12), client facts (D2), and the streamed `terminal.status` facts |
 | `chats.ts` | `ChatRegistry`: the daemon-owned agent chats — opens a `ChatSession` per chat through `ChatHost`, mirrors the engine `ChatEvent` stream, answers approvals (`resolveCard`) and sudo (`requestSudo`), and derives `ChatMeta` (P4c-ii) |
 | `ws.ts` | `GET /v1/ws` (loopback only): upgrade + auth, the request/response/event envelope, the terminal + chat op dispatch, bounded per-client queues, the `hello`/client-gone seam |
-| `lifecycle.ts` | The lifetime policy (P3c-iii): grace/idle exit (held while a live pane shell exists), the idle reaper that kills panes inactive past the re-attach window, detached-turn keep-alive, the no-client approval hold, `versionMismatchAction` |
+| `lifecycle.ts` | The lifetime policy (P3c-iii): grace/idle exit (held while a live pane shell exists), the idle reaper that kills panes inactive past the re-attach window, detached-turn keep-alive, the per-kind no-client prompt holds, `versionMismatchAction` |
 | `cli.ts` | `sensus daemon {serve,start,stop,restart,status,logs,install,uninstall}` (install/uninstall write the persistent user unit) |
 | `service.ts` | Persistent user service (P6): systemd/launchd unit rendering + install/uninstall through an injectable runner (no root, no system-wide paths) |
 | `triggers.ts` | Local condition triggers (P6): rule matching, the bounded `triggers.jsonl` writer, and the event-sink decoration that feeds it (docs/triggers.md) |
@@ -484,8 +484,12 @@ the error. Full detail: [`agent.md`](agent.md).
   is the user's terminal and must survive a client kill/restart — D1, locked #6), so it only
   idle-exits once no pane remains; a **detached turn keeps it alive** until it settles, and
   `SENSUS_DAEMON_PERSISTENT=1` (or config `daemonPersistent`) never exits. A no-client
-  approval/sudo **holds** and aborts the turn after `SENSUS_DAEMON_APPROVAL_TIMEOUT_MS`
-  (default 60000). A daemon whose **version differs** after an update is restarted
+  prompt **holds** for one hour by default for every kind: a single tool approval
+  (`SENSUS_DAEMON_APPROVAL_TIMEOUT_MS`), `ask_user` (`SENSUS_DAEMON_ASK_TIMEOUT_MS`),
+  an approval-batch plan (`SENSUS_DAEMON_PLAN_TIMEOUT_MS`), and sudo
+  (`SENSUS_DAEMON_SUDO_TIMEOUT_MS`). All four are configurable in `config.json` as
+  `approvalTimeoutMs`, `askTimeoutMs`, `planTimeoutMs`, and `sudoTimeoutMs`; `0` holds
+  forever. A daemon whose **version differs** after an update is restarted
   silently when it holds no shells; one that holds shells prompts at boot to restart-and-lose
   vs defer (`DaemonMismatchPrompt`, D21), and `sensus daemon restart` does it manually.
   `sensus daemon install`/`uninstall` write/remove a user service unit for the

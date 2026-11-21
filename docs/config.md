@@ -129,6 +129,10 @@ The full path each of these resolves to is implemented in `src/config/config.ts`
   "layout": "sidebar",
   "autoChatOnly": true,
   "daemonPersistent": false,
+  "approvalTimeoutMs": 3600000,
+  "askTimeoutMs": 3600000,
+  "planTimeoutMs": 3600000,
+  "sudoTimeoutMs": 3600000,
   "updateCheck": true,
   "triggers": [{ "on": "error.raised" }],
   "tabs": { "width": 24 },
@@ -718,12 +722,38 @@ can re-attach (D1, locked #6). A persistent daemon never grace-exits.
 `SENSUS_DAEMON_PERSISTENT=1` (or any of
 `true`/`yes`/`on`) overrides it to `true`; the falsey spellings override to
 `false`. A non-boolean value warns and keeps the default. The daemon's no-client
-approval hold (`SENSUS_DAEMON_APPROVAL_TIMEOUT_MS`, default 60000) is
-independent of this, as is the idle reaper: a shell left **inactive** longer than
+prompt holds (`approvalTimeoutMs` / `askTimeoutMs` / `planTimeoutMs` /
+`sudoTimeoutMs`, below) are independent of
+this, as is the idle reaper: a shell left **inactive** longer than
 `SENSUS_DAEMON_REATTACH_MAX_AGE_MS` (default 28800000 ms, 8h; `0` disables) is
 killed so it can no longer be re-attached — re-attach is for a *recent* detach, not a
 session from a previous workday. Full policy: [`daemon-api.md`](daemon-api.md)
 "Lifecycle", [`operations.md`](operations.md) "Daemon".
+
+## `approvalTimeoutMs`, `askTimeoutMs`, `planTimeoutMs`, and `sudoTimeoutMs`
+
+No-client prompt holds (docs/daemon-api.md "Lifecycle", D10). When the last
+client detaches while a prompt is pending, the daemon holds the turn instead of
+declining it immediately. Every kind defaults to one hour and has its own key:
+
+- `approvalTimeoutMs` (default `3600000`, one hour): a single gated tool
+  approval. On expiry the pending call is recorded as denied and the turn is
+  aborted, so nothing executes unapproved.
+- `askTimeoutMs` (default `3600000`, one hour): `ask_user` questions. A question
+  may legitimately wait while the user steps away. On expiry the turn is
+  aborted; there is no call to deny.
+- `planTimeoutMs` (default `3600000`, one hour): an approval-batch plan. On
+  expiry every line is recorded as denied and the turn is aborted.
+- `sudoTimeoutMs` (default `3600000`, one hour): a sudo password prompt. On
+  expiry the prompt is declined and the turn is aborted; the password is never
+  cached.
+
+All four accept milliseconds and `0` holds the prompt indefinitely (useful for
+a persistent service). Env overrides are `SENSUS_DAEMON_APPROVAL_TIMEOUT_MS`,
+`SENSUS_DAEMON_ASK_TIMEOUT_MS`, `SENSUS_DAEMON_PLAN_TIMEOUT_MS`, and
+`SENSUS_DAEMON_SUDO_TIMEOUT_MS`; an invalid value keeps the default. A client
+reconnecting during the hold cancels the timer and can answer normally. Changes
+apply on the next daemon start.
 
 ## `updateCheck`
 

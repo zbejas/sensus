@@ -155,40 +155,115 @@ describe("sensus cloud pair", () => {
     expect(JSON.parse(raw).deviceToken).toBe("device-token")
   })
 
-  test("interactive pairing without --allow asks which scopes to grant", async () => {
+  test("interactive pairing defaults to Standard, accepts 1, and re-asks on unknown input", async () => {
+    for (const answers of [[""], ["1"], ["bogus", "standard"]]) {
+      const home = tempHome()
+      const { io, err } = capture()
+      const { fetchImpl } = fakeFetch()
+      const prompts: string[] = []
+      const queue = [...answers]
+      const code = await runCloud(
+        ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+        io,
+        { HOME: home, SENSUS_HOME: home, USER: "tester" },
+        baseOpts(home, 1000, {
+          fetchImpl,
+          interactive: true,
+          confirm: async () => false,
+          promptText: async (question: string) => {
+            prompts.push(question)
+            return queue.shift() ?? ""
+          },
+        }),
+      )
+      expect(code).toBe(0)
+      expect(prompts[0]).toContain("Choice [1]")
+      if (answers.length > 1) expect(err.join("\n")).toContain("choose 1-4")
+      expect(err.join("\n")).toContain("Standard")
+      expect(err.join("\n")).toContain("Conductor")
+      expect(err.join("\n")).toContain("YOLO")
+      const conn = readCloudConnection(home)
+      expect(conn.ok).toBe(true)
+      if (!conn.ok || conn.connection === null) return
+      expect(conn.connection.scopes).toEqual(["view", "chat", "control"])
+    }
+  })
+
+  test("interactive pairing accepts the Conductor preset by number or name", async () => {
+    for (const answer of ["2", "conductor"]) {
+      const home = tempHome()
+      const { io } = capture()
+      const { fetchImpl } = fakeFetch()
+      const code = await runCloud(
+        ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
+        io,
+        { HOME: home, SENSUS_HOME: home, USER: "tester" },
+        baseOpts(home, 1000, {
+          fetchImpl,
+          interactive: true,
+          confirm: async () => false,
+          promptText: async () => answer,
+        }),
+      )
+      expect(code).toBe(0)
+      const conn = readCloudConnection(home)
+      expect(conn.ok).toBe(true)
+      if (!conn.ok || conn.connection === null) return
+      expect(conn.connection.scopes).toEqual(["view", "chat", "control", "orchestrator"])
+    }
+  })
+
+  test("the YOLO preset grants every scope and all three opt-in flags with a warning", async () => {
     const home = tempHome()
-    const { io, err } = capture()
+    const { io } = capture()
     const { fetchImpl } = fakeFetch()
-    const prompts: string[] = []
+    // Start from an existing narrower policy to prove the preset replaces the
+    // three booleans (and only those) on a re-pair.
+    expect(
+      await runCloud(
+        ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--allow", "view", "--no-wait"],
+        io,
+        { HOME: home, SENSUS_HOME: home, USER: "tester" },
+        baseOpts(home, 1000, { fetchImpl }),
+      ),
+    ).toBe(0)
+    const yolo = capture()
     const code = await runCloud(
       ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
-      io,
+      yolo.io,
       { HOME: home, SENSUS_HOME: home, USER: "tester" },
       baseOpts(home, 1000, {
         fetchImpl,
         interactive: true,
         confirm: async () => false,
-        promptText: async (question: string) => {
-          prompts.push(question)
-          return ""
-        },
+        promptText: async () => "yolo",
       }),
     )
     expect(code).toBe(0)
-    expect(prompts.length).toBe(1)
-    expect(prompts[0]).toContain("[view,chat,control]")
-    expect(err.join("\n")).toContain("orchestrator")
+    const policy = JSON.parse(readFileSync(join(home, "auth", "policy.json"), "utf8")) as {
+      scopes: string[]
+      startDaemon: boolean
+      deleteTranscripts: boolean
+      updateDaemon: boolean
+    }
+    expect(policy.scopes).toEqual(["view", "chat", "control", "orchestrator"])
+    expect(policy.startDaemon).toBe(true)
+    expect(policy.deleteTranscripts).toBe(true)
+    expect(policy.updateDaemon).toBe(true)
+    expect(yolo.err.join("\n")).toContain("YOLO")
+    expect(yolo.err.join("\n")).toContain("permanently")
+    expect(yolo.err.join("\n")).toContain("replace/restart")
     const conn = readCloudConnection(home)
     expect(conn.ok).toBe(true)
     if (!conn.ok || conn.connection === null) return
-    expect(conn.connection.scopes).toEqual(["view", "chat", "control"])
+    expect(conn.connection.scopes).toEqual(["view", "chat", "control", "orchestrator"])
   })
 
   test("interactive pairing accepts a custom scope list and re-asks on invalid input", async () => {
     const home = tempHome()
     const { io, err } = capture()
     const { fetchImpl } = fakeFetch()
-    const answers = ["root", "view,chat"]
+    const answers = ["4", "root", "view,chat"]
     const code = await runCloud(
       ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--no-wait"],
       io,
@@ -206,6 +281,15 @@ describe("sensus cloud pair", () => {
     expect(conn.ok).toBe(true)
     if (!conn.ok || conn.connection === null) return
     expect(conn.connection.scopes).toEqual(["view", "chat"])
+    // Custom never changes the opt-in flags.
+    const policy = JSON.parse(readFileSync(join(home, "auth", "policy.json"), "utf8")) as {
+      startDaemon: boolean
+      deleteTranscripts: boolean
+      updateDaemon: boolean
+    }
+    expect(policy.startDaemon).toBe(false)
+    expect(policy.deleteTranscripts).toBe(false)
+    expect(policy.updateDaemon).toBe(false)
   })
 
   test("non-interactive pairing without --allow keeps the view-only default", async () => {
@@ -343,7 +427,7 @@ describe("sensus cloud pair", () => {
         fetchImpl,
         interactive: true,
         confirm: async () => true,
-        promptText: async () => "view",
+        promptText: async () => "1",
         findDaemonConflicts: () => [{ runtimeDir: "/run/user/0/sensus-0", uid: 0, pid: 123 }],
         stopRootDaemon: async (runtimeDir: string) => {
           stopped.push(runtimeDir)
@@ -761,6 +845,46 @@ describe("sensus cloud pair", () => {
     const bad = capture()
     expect(
       await runCloud(["scopes", "--delete-transcripts", "maybe"], bad.io, { HOME: home, SENSUS_HOME: home }, baseOpts(home, 1000)),
+    ).toBe(1)
+    expect(bad.err.join("\n")).toContain("on` or `off")
+  })
+
+  test("scopes --update toggles the host-update opt-in and warns about the restart", async () => {
+    const home = tempHome()
+    const { io } = capture()
+    const { fetchImpl } = fakeFetch()
+    await runCloud(
+      ["pair", "--cloud", "https://cloud.example", "--code", "ABCD-EFGH", "--allow", "view,control", "--no-wait"],
+      io,
+      { HOME: home, SENSUS_HOME: home, USER: "tester" },
+      baseOpts(home, 1000, { fetchImpl }),
+    )
+
+    const shown = capture()
+    expect(await runCloud(["scopes"], shown.io, { HOME: home, SENSUS_HOME: home }, baseOpts(home, 1000))).toBe(0)
+    expect(shown.out.join("\n")).toContain("host updates  off")
+
+    const on = capture()
+    expect(
+      await runCloud(["scopes", "--update", "on"], on.io, { HOME: home, SENSUS_HOME: home }, baseOpts(home, 1000)),
+    ).toBe(0)
+    const enabled = JSON.parse(readFileSync(join(home, "auth", "policy.json"), "utf8"))
+    expect(enabled.updateDaemon).toBe(true)
+    expect(enabled.scopes).toEqual(["view", "control"])
+    expect(on.out.join("\n")).toContain("host updates  on")
+    expect(on.err.join("\n")).toContain("replace the Sensus binary")
+    expect(on.err.join("\n")).toContain("live shells, chats, and running turns end")
+
+    const off = capture()
+    expect(
+      await runCloud(["scopes", "--update", "off"], off.io, { HOME: home, SENSUS_HOME: home }, baseOpts(home, 1000)),
+    ).toBe(0)
+    expect(JSON.parse(readFileSync(join(home, "auth", "policy.json"), "utf8")).updateDaemon).toBe(false)
+    expect(off.out.join("\n")).toContain("host updates  off")
+
+    const bad = capture()
+    expect(
+      await runCloud(["scopes", "--update", "maybe"], bad.io, { HOME: home, SENSUS_HOME: home }, baseOpts(home, 1000)),
     ).toBe(1)
     expect(bad.err.join("\n")).toContain("on` or `off")
   })

@@ -26,6 +26,7 @@ import {
   type FetchLike,
 } from "./pairing.ts"
 import { cloudDir, resolveRuntimeDir } from "./paths.ts"
+import type { DaemonUpdateOutcome } from "../../update.ts"
 
 const log: Logger = componentLogger("daemon.cloud")
 
@@ -62,6 +63,8 @@ export interface CloudClientOptions {
   deleteSession?: (path: string) => { ok: boolean; message?: string }
   /** Per-call memory store (the same store the REST route uses). */
   memoryStore?: () => MemoryStore
+  /** Host-local self-update runner (`daemon.update`); absent → `update_unavailable`. */
+  updateDaemon?: (input: { check: boolean; version: string | null }) => Promise<DaemonUpdateOutcome>
   /** Audit sink for a committed `memory.write` (`memory-write`). */
   events?: EventSink
   /** Test seam: fake broker/tunnel discovery. */
@@ -163,6 +166,7 @@ class EmbeddedCloudClient implements CloudClient {
       recordRun: (record) => recordRun(this.home, record),
       forgetRun: (streamId) => forgetRun(this.home, streamId),
       startDaemon: async () => true,
+      ...(this.opts.updateDaemon !== undefined ? { updateDaemon: this.opts.updateDaemon } : {}),
       maxStreams: policy.policy.maxStreams,
       onLog: (level, message) => this.report(level, message),
     })

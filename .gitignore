@@ -5,3 +5,4 @@ dist/
 .sensus-test/typescript
 .emitProbe*.tsx
 screenshots/
+.impeccable/
